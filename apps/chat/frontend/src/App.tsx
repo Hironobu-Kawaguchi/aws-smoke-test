@@ -25,7 +25,95 @@ function formatMegabytes(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)}MB`
 }
 
-const MODEL_OPTIONS = ['gpt-4o-mini', 'gpt-4.1-mini'] as const
+type ReasoningEffort = 'low' | 'medium' | 'high'
+
+interface ModelMetadata {
+  id: string
+  supportsTemperature: boolean
+  supportsReasoningEffort: boolean
+  reasoningEffortOptions: ReasoningEffort[]
+  defaultReasoningEffort: ReasoningEffort | null
+}
+
+const FALLBACK_MODELS: ModelMetadata[] = [
+  {
+    id: 'gpt-4.1',
+    supportsTemperature: true,
+    supportsReasoningEffort: false,
+    reasoningEffortOptions: [],
+    defaultReasoningEffort: null,
+  },
+  {
+    id: 'gpt-4.1-mini',
+    supportsTemperature: true,
+    supportsReasoningEffort: false,
+    reasoningEffortOptions: [],
+    defaultReasoningEffort: null,
+  },
+  {
+    id: 'gpt-5',
+    supportsTemperature: false,
+    supportsReasoningEffort: true,
+    reasoningEffortOptions: ['low', 'medium', 'high'],
+    defaultReasoningEffort: 'low',
+  },
+  {
+    id: 'gpt-5-mini',
+    supportsTemperature: false,
+    supportsReasoningEffort: true,
+    reasoningEffortOptions: ['low', 'medium', 'high'],
+    defaultReasoningEffort: 'low',
+  },
+  {
+    id: 'gpt-5-nano',
+    supportsTemperature: false,
+    supportsReasoningEffort: true,
+    reasoningEffortOptions: ['low', 'medium', 'high'],
+    defaultReasoningEffort: 'low',
+  },
+  {
+    id: 'gpt-5-chat-latest',
+    supportsTemperature: false,
+    supportsReasoningEffort: true,
+    reasoningEffortOptions: ['low', 'medium', 'high'],
+    defaultReasoningEffort: 'low',
+  },
+  {
+    id: 'gpt-5.2',
+    supportsTemperature: false,
+    supportsReasoningEffort: true,
+    reasoningEffortOptions: ['low', 'medium', 'high'],
+    defaultReasoningEffort: 'low',
+  },
+  {
+    id: 'gpt-5.2-pro',
+    supportsTemperature: false,
+    supportsReasoningEffort: true,
+    reasoningEffortOptions: ['low', 'medium', 'high'],
+    defaultReasoningEffort: 'low',
+  },
+  {
+    id: 'o4-mini',
+    supportsTemperature: false,
+    supportsReasoningEffort: true,
+    reasoningEffortOptions: ['low', 'medium', 'high'],
+    defaultReasoningEffort: 'low',
+  },
+  {
+    id: 'o3-deep-research',
+    supportsTemperature: false,
+    supportsReasoningEffort: true,
+    reasoningEffortOptions: ['low', 'medium', 'high'],
+    defaultReasoningEffort: 'low',
+  },
+  {
+    id: 'o4-mini-deep-research',
+    supportsTemperature: false,
+    supportsReasoningEffort: true,
+    reasoningEffortOptions: ['low', 'medium', 'high'],
+    defaultReasoningEffort: 'low',
+  },
+]
 const ALLOWED_ATTACHMENT_MIME_TYPES = new Set([
   'application/pdf',
   'image/png',
@@ -209,7 +297,9 @@ interface PendingAttachment extends RequestAttachment {
 interface ChatSettings {
   model: string
   systemPrompt: string
+  webSearchEnabled: boolean
   temperature: number
+  reasoningEffort: ReasoningEffort
   maxOutputTokens: number
 }
 
@@ -219,9 +309,11 @@ interface ChatApiResponse {
 }
 
 const DEFAULT_SETTINGS: ChatSettings = {
-  model: 'gpt-4o-mini',
+  model: FALLBACK_MODELS[1].id,
   systemPrompt: '',
+  webSearchEnabled: true,
   temperature: 0.7,
+  reasoningEffort: 'low',
   maxOutputTokens: 1000,
 }
 
@@ -255,8 +347,17 @@ function App() {
   const [loading, setLoading] = useState(false)
   const [previousResponseId, setPreviousResponseId] = useState<string | null>(null)
   const [settings, setSettings] = useState<ChatSettings>(DEFAULT_SETTINGS)
+  const [availableModels, setAvailableModels] = useState<ModelMetadata[]>(FALLBACK_MODELS)
+  const [modelLoadError, setModelLoadError] = useState<string | null>(null)
   const loadingAttachmentsRef = useRef(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
+  const activeModel = useMemo(
+    () =>
+      availableModels.find((model) => model.id === settings.model) ??
+      availableModels[0] ??
+      null,
+    [availableModels, settings.model],
+  )
 
   const totalPendingAttachmentBytes = useMemo(
     () =>
@@ -266,6 +367,62 @@ function App() {
       ),
     [pendingAttachments],
   )
+
+  useEffect(() => {
+    let cancelled = false
+
+    const loadModels = async () => {
+      try {
+        const response = await fetch('/api/models')
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}`)
+        }
+
+        const data = (await response.json()) as ModelMetadata[]
+        if (cancelled || data.length === 0) return
+
+        setAvailableModels(data)
+        setModelLoadError(null)
+        setSettings((current) => {
+          const nextModel = data.find((model) => model.id === current.model) ?? data[0]
+          const nextReasoningEffort =
+            nextModel.supportsReasoningEffort &&
+            !nextModel.reasoningEffortOptions.includes(current.reasoningEffort)
+              ? (nextModel.defaultReasoningEffort ??
+                nextModel.reasoningEffortOptions[0] ??
+                current.reasoningEffort)
+              : current.reasoningEffort
+          return {
+            ...current,
+            model: nextModel.id,
+            reasoningEffort: nextReasoningEffort,
+          }
+        })
+      } catch (error) {
+        if (cancelled) return
+        const message = error instanceof Error ? error.message : 'Unknown error'
+        setModelLoadError(
+          `Failed to load latest model list. Using fallback models. (${message})`,
+        )
+      }
+    }
+
+    void loadModels()
+
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!activeModel || !activeModel.supportsReasoningEffort) return
+    if (activeModel.reasoningEffortOptions.includes(settings.reasoningEffort)) return
+    const fallbackReasoningEffort =
+      activeModel.defaultReasoningEffort ??
+      activeModel.reasoningEffortOptions[0] ??
+      settings.reasoningEffort
+    setSettings((current) => ({ ...current, reasoningEffort: fallbackReasoningEffort }))
+  }, [activeModel, settings.reasoningEffort])
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -395,7 +552,11 @@ function App() {
         messages: [requestMessage],
         model: settings.model,
         systemPrompt: settings.systemPrompt,
-        temperature: settings.temperature,
+        webSearchEnabled: settings.webSearchEnabled,
+        temperature: activeModel?.supportsTemperature ? settings.temperature : undefined,
+        reasoningEffort: activeModel?.supportsReasoningEffort
+          ? settings.reasoningEffort
+          : undefined,
         maxOutputTokens: settings.maxOutputTokens,
         previousResponseId: previousResponseId ?? undefined,
       })
@@ -451,9 +612,9 @@ function App() {
             }
             disabled={loading}
           >
-            {MODEL_OPTIONS.map((model) => (
-              <option key={model} value={model}>
-                {model}
+            {availableModels.map((model) => (
+              <option key={model.id} value={model.id}>
+                {model.id}
               </option>
             ))}
           </select>
@@ -471,26 +632,63 @@ function App() {
             disabled={loading}
           />
         </label>
-        <label>
-          Temperature
+        <label className="chat-toggle">
+          Web Search
           <input
-            type="number"
-            min={0}
-            max={2}
-            step={0.1}
-            value={settings.temperature}
-            onChange={(e) => {
-              if (e.target.value.trim() === '') return
-              const parsed = Number.parseFloat(e.target.value)
-              if (!Number.isFinite(parsed)) return
+            type="checkbox"
+            checked={settings.webSearchEnabled}
+            onChange={(e) =>
               setSettings((current) => ({
                 ...current,
-                temperature: clamp(parsed, MIN_TEMPERATURE, MAX_TEMPERATURE),
+                webSearchEnabled: e.target.checked,
               }))
-            }}
+            }
             disabled={loading}
           />
         </label>
+        {activeModel?.supportsTemperature && (
+          <label>
+            Temperature
+            <input
+              type="number"
+              min={0}
+              max={2}
+              step={0.1}
+              value={settings.temperature}
+              onChange={(e) => {
+                if (e.target.value.trim() === '') return
+                const parsed = Number.parseFloat(e.target.value)
+                if (!Number.isFinite(parsed)) return
+                setSettings((current) => ({
+                  ...current,
+                  temperature: clamp(parsed, MIN_TEMPERATURE, MAX_TEMPERATURE),
+                }))
+              }}
+              disabled={loading}
+            />
+          </label>
+        )}
+        {activeModel?.supportsReasoningEffort && (
+          <label>
+            Reasoning Effort
+            <select
+              value={settings.reasoningEffort}
+              onChange={(e) =>
+                setSettings((current) => ({
+                  ...current,
+                  reasoningEffort: e.target.value as ReasoningEffort,
+                }))
+              }
+              disabled={loading}
+            >
+              {activeModel.reasoningEffortOptions.map((effort) => (
+                <option key={effort} value={effort}>
+                  {effort}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
         <label>
           Max Tokens
           <input
@@ -511,6 +709,11 @@ function App() {
           />
         </label>
       </section>
+      {modelLoadError && (
+        <p className="settings-error" role="status">
+          {modelLoadError}
+        </p>
+      )}
 
       <div className="chat-messages">
         {messages.map((msg, i) => (

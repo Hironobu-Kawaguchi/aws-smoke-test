@@ -33,6 +33,19 @@
   font-size: 0.8rem;
 }
 
+.chat-settings .chat-toggle {
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.chat-settings .chat-toggle input[type='checkbox'] {
+  width: 1rem;
+  height: 1rem;
+  margin: 0;
+}
+
 .chat-settings input,
 .chat-settings select {
   border: 1px solid #444;
@@ -40,6 +53,13 @@
   background: inherit;
   color: inherit;
   padding: 0.4rem 0.5rem;
+}
+
+.settings-error {
+  margin: 0;
+  padding: 0 1rem 0.75rem;
+  color: #fca5a5;
+  font-size: 0.8rem;
 }
 
 .chat-messages {
@@ -214,6 +234,10 @@
   }
 
   .attachment-error {
+    color: #b91c1c;
+  }
+
+  .settings-error {
     color: #b91c1c;
   }
 }

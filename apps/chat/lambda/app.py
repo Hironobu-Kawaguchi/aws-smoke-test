@@ -3,6 +3,7 @@
 import logging
 import re
 import time
+from dataclasses import dataclass
 from functools import lru_cache
 from typing import Any, Literal
 
@@ -20,14 +21,87 @@ router = APIRouter(prefix="/api")
 
 SSM_PARAMETER_NAME = "/chat-app/openai-api-key"
 AWS_REGION = "ap-northeast-1"
-DEFAULT_MODEL = "gpt-4o-mini"
-ALLOWED_MODELS = {"gpt-4o-mini", "gpt-4.1-mini"}
+DEFAULT_MODEL = "gpt-4.1-mini"
 IMAGE_ATTACHMENT_MIME_TYPES = {"image/png", "image/jpeg", "image/webp", "image/gif"}
 PDF_ATTACHMENT_MIME_TYPE = "application/pdf"
 ALLOWED_ATTACHMENT_MIME_TYPES = IMAGE_ATTACHMENT_MIME_TYPES | {PDF_ATTACHMENT_MIME_TYPE}
 MAX_ATTACHMENT_BASE64_LENGTH = 2_800_000
 MAX_REQUEST_ATTACHMENT_BASE64_LENGTH = 5_600_000
 DATA_URL_PATTERN = re.compile(r"^data:(?P<mime>[-.\w+/]+);base64,(?P<payload>[A-Za-z0-9+/=]+)$")
+DEFAULT_TEMPERATURE = 0.7
+REASONING_EFFORT_OPTIONS = ("low", "medium", "high")
+
+ReasoningEffort = Literal["low", "medium", "high"]
+
+
+@dataclass(frozen=True)
+class ModelCapability:
+    supports_temperature: bool
+    supports_reasoning_effort: bool
+    reasoning_effort_options: tuple[ReasoningEffort, ...] = ()
+    default_reasoning_effort: ReasoningEffort | None = None
+
+
+# Web search-compatible models in the Responses API.
+MODEL_CAPABILITIES: dict[str, ModelCapability] = {
+    "gpt-4.1": ModelCapability(supports_temperature=True, supports_reasoning_effort=False),
+    "gpt-4.1-mini": ModelCapability(supports_temperature=True, supports_reasoning_effort=False),
+    "gpt-5": ModelCapability(
+        supports_temperature=False,
+        supports_reasoning_effort=True,
+        reasoning_effort_options=REASONING_EFFORT_OPTIONS,
+        default_reasoning_effort="low",
+    ),
+    "gpt-5-mini": ModelCapability(
+        supports_temperature=False,
+        supports_reasoning_effort=True,
+        reasoning_effort_options=REASONING_EFFORT_OPTIONS,
+        default_reasoning_effort="low",
+    ),
+    "gpt-5-nano": ModelCapability(
+        supports_temperature=False,
+        supports_reasoning_effort=True,
+        reasoning_effort_options=REASONING_EFFORT_OPTIONS,
+        default_reasoning_effort="low",
+    ),
+    "gpt-5-chat-latest": ModelCapability(
+        supports_temperature=False,
+        supports_reasoning_effort=True,
+        reasoning_effort_options=REASONING_EFFORT_OPTIONS,
+        default_reasoning_effort="low",
+    ),
+    "gpt-5.2": ModelCapability(
+        supports_temperature=False,
+        supports_reasoning_effort=True,
+        reasoning_effort_options=REASONING_EFFORT_OPTIONS,
+        default_reasoning_effort="low",
+    ),
+    "gpt-5.2-pro": ModelCapability(
+        supports_temperature=False,
+        supports_reasoning_effort=True,
+        reasoning_effort_options=REASONING_EFFORT_OPTIONS,
+        default_reasoning_effort="low",
+    ),
+    "o4-mini": ModelCapability(
+        supports_temperature=False,
+        supports_reasoning_effort=True,
+        reasoning_effort_options=REASONING_EFFORT_OPTIONS,
+        default_reasoning_effort="low",
+    ),
+    "o3-deep-research": ModelCapability(
+        supports_temperature=False,
+        supports_reasoning_effort=True,
+        reasoning_effort_options=REASONING_EFFORT_OPTIONS,
+        default_reasoning_effort="low",
+    ),
+    "o4-mini-deep-research": ModelCapability(
+        supports_temperature=False,
+        supports_reasoning_effort=True,
+        reasoning_effort_options=REASONING_EFFORT_OPTIONS,
+        default_reasoning_effort="low",
+    ),
+}
+ALLOWED_MODELS = set(MODEL_CAPABILITIES)
 
 
 def _parse_data_url(data_url: str) -> tuple[str, str]:
@@ -89,13 +163,27 @@ class Message(BaseModel):
         return self
 
 
+class ModelMetadata(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    id: str
+    supports_temperature: bool = Field(alias="supportsTemperature")
+    supports_reasoning_effort: bool = Field(alias="supportsReasoningEffort")
+    reasoning_effort_options: list[ReasoningEffort] = Field(alias="reasoningEffortOptions")
+    default_reasoning_effort: ReasoningEffort | None = Field(
+        default=None, alias="defaultReasoningEffort"
+    )
+
+
 class ChatRequest(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
     messages: list[Message]
     model: str = DEFAULT_MODEL
     system_prompt: str | None = Field(default=None, alias="systemPrompt")
-    temperature: float = Field(default=0.7, ge=0, le=2)
+    temperature: float | None = Field(default=None, ge=0, le=2)
+    reasoning_effort: ReasoningEffort | None = Field(default=None, alias="reasoningEffort")
+    web_search_enabled: bool = Field(default=True, alias="webSearchEnabled")
     max_output_tokens: int = Field(default=1000, alias="maxOutputTokens", ge=1, le=4096)
     previous_response_id: str | None = Field(default=None, alias="previousResponseId")
 
@@ -107,6 +195,30 @@ class ChatRequest(BaseModel):
                 f"Unsupported model: {model}. Allowed models: {', '.join(sorted(ALLOWED_MODELS))}"
             )
         return model
+
+    @model_validator(mode="after")
+    def validate_model_parameters(self) -> "ChatRequest":
+        capability = MODEL_CAPABILITIES[self.model]
+
+        if capability.supports_temperature:
+            if self.temperature is None:
+                self.temperature = DEFAULT_TEMPERATURE
+        elif self.temperature is not None:
+            raise ValueError(f"temperature is not supported for model: {self.model}")
+
+        if capability.supports_reasoning_effort:
+            if self.reasoning_effort is None:
+                self.reasoning_effort = capability.default_reasoning_effort
+            elif self.reasoning_effort not in capability.reasoning_effort_options:
+                options = ", ".join(capability.reasoning_effort_options)
+                raise ValueError(
+                    f"Invalid reasoningEffort for model {self.model}: {self.reasoning_effort}. "
+                    f"Supported options: {options}"
+                )
+        elif self.reasoning_effort is not None:
+            raise ValueError(f"reasoningEffort is not supported for model: {self.model}")
+
+        return self
 
     @model_validator(mode="after")
     def validate_total_request_attachment_size(self) -> "ChatRequest":
@@ -158,6 +270,21 @@ def _build_content_parts(message: Message) -> list[dict[str, Any]]:
     return parts
 
 
+@router.get("/models", response_model=list[ModelMetadata])
+def models() -> list[ModelMetadata]:
+    """List web-search capable models and their configurable parameters."""
+    return [
+        ModelMetadata(
+            id=model,
+            supportsTemperature=capability.supports_temperature,
+            supportsReasoningEffort=capability.supports_reasoning_effort,
+            reasoningEffortOptions=list(capability.reasoning_effort_options),
+            defaultReasoningEffort=capability.default_reasoning_effort,
+        )
+        for model, capability in MODEL_CAPABILITIES.items()
+    ]
+
+
 @router.post("/chat", response_model=ChatResponse)
 def chat(request: ChatRequest) -> ChatResponse:
     """Send messages to OpenAI Responses API and return the assistant response."""
@@ -173,13 +300,20 @@ def chat(request: ChatRequest) -> ChatResponse:
     client = get_openai_client()
     try:
         start = time.time()
+        capability = MODEL_CAPABILITIES[request.model]
         request_params: dict[str, Any] = {
             "model": request.model,
             "instructions": request.system_prompt or None,
             "input": input_messages,
-            "temperature": request.temperature,
             "max_output_tokens": request.max_output_tokens,
         }
+        if capability.supports_temperature and request.temperature is not None:
+            request_params["temperature"] = request.temperature
+        if capability.supports_reasoning_effort and request.reasoning_effort is not None:
+            request_params["reasoning"] = {"effort": request.reasoning_effort}
+        if request.web_search_enabled:
+            request_params["tools"] = [{"type": "web_search"}]
+
         if request.previous_response_id:
             request_params["previous_response_id"] = request.previous_response_id
 
