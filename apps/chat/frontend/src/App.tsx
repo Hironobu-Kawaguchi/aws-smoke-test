@@ -1,6 +1,13 @@
 import { useState, useRef, useEffect } from 'react'
 import './App.css'
 
+async function sha256Hex(message: string): Promise<string> {
+  const data = new TextEncoder().encode(message)
+  const hashBuffer = await crypto.subtle.digest('SHA-256', data)
+  const hashArray = Array.from(new Uint8Array(hashBuffer))
+  return hashArray.map((b) => b.toString(16).padStart(2, '0')).join('')
+}
+
 interface Message {
   role: 'user' | 'assistant'
   content: string
@@ -27,10 +34,15 @@ function App() {
     setLoading(true)
 
     try {
+      const body = JSON.stringify({ messages: updatedMessages })
+      const bodyHash = await sha256Hex(body)
       const response = await fetch('/api/chat', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ messages: updatedMessages }),
+        headers: {
+          'Content-Type': 'application/json',
+          'x-amz-content-sha256': bodyHash,
+        },
+        body,
       })
 
       if (!response.ok) {

@@ -44,7 +44,7 @@ Resources:
       AuthType: AWS_IAM
       TargetFunctionArn: !GetAtt ChatFunction.Arn
 
-  LambdaInvokePermission:
+  LambdaInvokeUrlPermission:
     Type: AWS::Lambda::Permission
     Properties:
       FunctionName: !GetAtt ChatFunction.Arn
@@ -52,6 +52,14 @@ Resources:
       Principal: cloudfront.amazonaws.com
       SourceArn: !Sub 'arn:aws:cloudfront::${AWS::AccountId}:distribution/${Distribution}'
       FunctionUrlAuthType: AWS_IAM
+
+  LambdaInvokeFunctionPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !GetAtt ChatFunction.Arn
+      Action: lambda:InvokeFunction
+      Principal: cloudfront.amazonaws.com
+      SourceArn: !Sub 'arn:aws:cloudfront::${AWS::AccountId}:distribution/${Distribution}'
 
   # --- S3 ---
   SiteBucket:
@@ -145,11 +153,11 @@ Resources:
           - ErrorCode: 403
             ResponseCode: 200
             ResponsePagePath: /index.html
-            ErrorCachingMinTTL: 300
+            ErrorCachingMinTTL: 10
           - ErrorCode: 404
             ResponseCode: 200
             ResponsePagePath: /index.html
-            ErrorCachingMinTTL: 300
+            ErrorCachingMinTTL: 10
         HttpVersion: http2and3
 
 Outputs:
