@@ -9,14 +9,17 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0.5rem 1rem;
-  border-bottom: 1px solid #333;
+  padding: 0.75rem 1.25rem;
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-surface);
   flex-shrink: 0;
 }
 
 .notepad-header h1 {
-  font-size: 1.2rem;
+  font-size: 1rem;
+  font-weight: 600;
   margin: 0;
+  letter-spacing: -0.01em;
 }
 
 .notepad-actions {
@@ -26,26 +29,28 @@
 }
 
 .save-status {
-  font-size: 0.85rem;
+  font-size: 0.8rem;
+  font-weight: 500;
+  transition: color var(--transition);
 }
 
 .save-status.saved {
-  color: #4caf50;
+  color: #22c55e;
 }
 
 .save-status.unsaved {
-  color: #ff9800;
+  color: #f59e0b;
 }
 
 .notepad-editor {
   flex: 1;
-  padding: 1rem;
+  padding: 1.25rem;
   border: none;
   outline: none;
   resize: none;
   font-family: inherit;
-  font-size: 1rem;
-  line-height: 1.6;
-  background: inherit;
+  font-size: 0.95rem;
+  line-height: 1.7;
+  background: var(--color-bg);
   color: inherit;
 }
