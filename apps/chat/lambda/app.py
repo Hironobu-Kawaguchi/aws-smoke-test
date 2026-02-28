@@ -10,7 +10,7 @@ from typing import Any, Literal
 
 import boto3
 from fastapi import APIRouter, FastAPI, HTTPException
-from langchain_core.runnables import RunnableLambda
+from langchain_core.runnables import Runnable, RunnableLambda
 from langsmith import traceable
 from mangum import Mangum
 from openai import OpenAI
@@ -119,7 +119,7 @@ def _parse_data_url(data_url: str) -> tuple[str, str]:
 @dataclass(frozen=True)
 class ApiCredentials:
     openai_api_key: str
-    langsmith_api_key: str
+    langsmith_api_key: str | None
 
 
 def _get_secure_parameter(ssm_client: Any, parameter_name: str) -> str:
@@ -130,16 +130,36 @@ def _get_secure_parameter(ssm_client: Any, parameter_name: str) -> str:
     return value
 
 
+def _get_optional_secure_parameter(ssm_client: Any, parameter_name: str) -> str | None:
+    try:
+        return _get_secure_parameter(ssm_client, parameter_name)
+    except Exception:
+        logger.warning(
+            "Optional SSM parameter is unavailable; disabling dependent feature",
+            extra={"parameter_name": parameter_name},
+            exc_info=True,
+        )
+        return None
+
+
 @lru_cache(maxsize=1)
 def get_api_credentials() -> ApiCredentials:
     ssm_client = boto3.client("ssm", region_name=AWS_REGION)
     return ApiCredentials(
         openai_api_key=_get_secure_parameter(ssm_client, OPENAI_API_KEY_PARAMETER_NAME),
-        langsmith_api_key=_get_secure_parameter(ssm_client, LANGSMITH_API_KEY_PARAMETER_NAME),
+        langsmith_api_key=_get_optional_secure_parameter(
+            ssm_client, LANGSMITH_API_KEY_PARAMETER_NAME
+        ),
     )
 
 
-def _configure_langsmith(langsmith_api_key: str) -> None:
+def _configure_langsmith(langsmith_api_key: str | None) -> None:
+    if not langsmith_api_key:
+        os.environ.pop("LANGSMITH_TRACING", None)
+        os.environ.pop("LANGSMITH_API_KEY", None)
+        logger.info("LangSmith tracing disabled because API key is unavailable")
+        return
+
     os.environ["LANGSMITH_TRACING"] = "true"
     os.environ["LANGSMITH_API_KEY"] = langsmith_api_key
     os.environ.setdefault("LANGSMITH_PROJECT", LANGSMITH_PROJECT)
@@ -160,7 +180,7 @@ def _invoke_openai_responses(request_params: dict[str, Any]) -> Any:
 
 
 @lru_cache(maxsize=1)
-def get_chat_responses_runnable() -> RunnableLambda:
+def get_chat_responses_runnable() -> Runnable[dict[str, Any], Any]:
     return RunnableLambda(_invoke_openai_responses).with_config(
         {"run_name": "chat_lambda_openai_responses"}
     )
