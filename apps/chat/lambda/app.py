@@ -4,7 +4,7 @@ import logging
 from functools import lru_cache
 
 import boto3
-from fastapi import FastAPI, HTTPException
+from fastapi import APIRouter, FastAPI, HTTPException
 from mangum import Mangum
 from openai import OpenAI
 from pydantic import BaseModel
@@ -12,7 +12,8 @@ from pydantic import BaseModel
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
-app = FastAPI(root_path="/api")
+app = FastAPI()
+router = APIRouter(prefix="/api")
 
 SSM_PARAMETER_NAME = "/chat-app/openai-api-key"
 AWS_REGION = "ap-northeast-1"
@@ -40,7 +41,7 @@ class ChatResponse(BaseModel):
     message: str
 
 
-@app.post("/chat", response_model=ChatResponse)
+@router.post("/chat", response_model=ChatResponse)
 def chat(request: ChatRequest) -> ChatResponse:
     """Send messages to OpenAI API and return the assistant response."""
     client = get_openai_client()
@@ -56,10 +57,13 @@ def chat(request: ChatRequest) -> ChatResponse:
         raise HTTPException(status_code=502, detail=str(e)) from e
 
 
-@app.get("/health")
+@router.get("/health")
 def health() -> dict[str, str]:
     """Health check endpoint."""
     return {"status": "ok"}
+
+
+app.include_router(router)
 
 
 handler = Mangum(app)
