@@ -262,7 +262,7 @@ def _build_langchain_messages(
             continue
 
         # Build content parts for user messages
-        parts: list[dict[str, Any]] = []
+        parts: list[str | dict[str, Any]] = []
         if msg.content.strip():
             parts.append({"type": "text", "text": msg.content})
 
