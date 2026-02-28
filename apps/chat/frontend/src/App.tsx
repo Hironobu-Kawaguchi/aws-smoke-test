@@ -1,6 +1,7 @@
 import {
   Fragment,
   useEffect,
+  useMemo,
   useRef,
   useState,
   type ChangeEvent,
@@ -15,6 +16,32 @@ async function sha256Hex(message: string): Promise<string> {
   const hashArray = Array.from(new Uint8Array(hashBuffer))
   return hashArray.map((b) => b.toString(16).padStart(2, '0')).join('')
 }
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, value))
+}
+
+function formatMegabytes(bytes: number): string {
+  return `${(bytes / (1024 * 1024)).toFixed(1)}MB`
+}
+
+const MODEL_OPTIONS = ['gpt-4o-mini', 'gpt-4.1-mini'] as const
+const ALLOWED_ATTACHMENT_MIME_TYPES = new Set([
+  'application/pdf',
+  'image/png',
+  'image/jpeg',
+  'image/webp',
+  'image/gif',
+])
+const MAX_ATTACHMENTS = 4
+const MAX_ATTACHMENT_BYTES = 2 * 1024 * 1024
+const MAX_TOTAL_ATTACHMENT_BYTES = 4 * 1024 * 1024
+const MAX_OUTPUT_TOKENS = 4096
+const MIN_OUTPUT_TOKENS = 1
+const MIN_TEMPERATURE = 0
+const MAX_TEMPERATURE = 2
+
+type MessageRole = 'user' | 'assistant'
 
 function renderInlineMarkdown(text: string): ReactNode[] {
   const nodes: ReactNode[] = []
@@ -149,16 +176,29 @@ function renderMarkdown(message: string): ReactNode[] {
   return nodes
 }
 
-interface Attachment {
+interface AttachmentMeta {
   name: string
   mimeType: string
+}
+
+interface RequestAttachment extends AttachmentMeta {
   dataUrl: string
 }
 
 interface Message {
-  role: 'user' | 'assistant'
+  role: MessageRole
   content: string
-  attachments?: Attachment[]
+  attachments?: AttachmentMeta[]
+}
+
+interface RequestMessage {
+  role: MessageRole
+  content: string
+  attachments?: RequestAttachment[]
+}
+
+interface PendingAttachment extends RequestAttachment {
+  sizeBytes: number
 }
 
 interface ChatSettings {
@@ -175,13 +215,46 @@ const DEFAULT_SETTINGS: ChatSettings = {
   maxOutputTokens: 1000,
 }
 
+async function readFileAsAttachment(file: File): Promise<PendingAttachment> {
+  return new Promise<PendingAttachment>((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => {
+      if (typeof reader.result !== 'string') {
+        reject(new Error(`${file.name}: failed to load file`))
+        return
+      }
+
+      resolve({
+        name: file.name,
+        mimeType: file.type,
+        dataUrl: reader.result,
+        sizeBytes: file.size,
+      })
+    }
+    reader.onerror = () => reject(new Error(`${file.name}: failed to load file`))
+    reader.readAsDataURL(file)
+  })
+}
+
 function App() {
   const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput] = useState('')
-  const [attachments, setAttachments] = useState<Attachment[]>([])
+  const [pendingAttachments, setPendingAttachments] = useState<PendingAttachment[]>([])
+  const [attachmentError, setAttachmentError] = useState<string | null>(null)
+  const [isLoadingAttachments, setIsLoadingAttachments] = useState(false)
   const [loading, setLoading] = useState(false)
   const [settings, setSettings] = useState<ChatSettings>(DEFAULT_SETTINGS)
+  const loadingAttachmentsRef = useRef(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
+
+  const totalPendingAttachmentBytes = useMemo(
+    () =>
+      pendingAttachments.reduce(
+        (sum, attachment) => sum + attachment.sizeBytes,
+        0,
+      ),
+    [pendingAttachments],
+  )
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -189,56 +262,135 @@ function App() {
 
   const handleFileChange = async (event: ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(event.target.files ?? [])
+    event.target.value = ''
     if (files.length === 0) return
 
-    const nextAttachments = await Promise.all(
-      files.map(
-        (file) =>
-          new Promise<Attachment>((resolve, reject) => {
-            const reader = new FileReader()
-            reader.onload = () => {
-              if (typeof reader.result !== 'string') {
-                reject(new Error('Failed to load file'))
-                return
-              }
-              resolve({
-                name: file.name,
-                mimeType: file.type || 'application/octet-stream',
-                dataUrl: reader.result,
-              })
-            }
-            reader.onerror = () => reject(new Error('Failed to load file'))
-            reader.readAsDataURL(file)
-          }),
-      ),
-    )
+    const errors: string[] = []
+    const availableSlots = MAX_ATTACHMENTS - pendingAttachments.length
+    if (availableSlots <= 0) {
+      setAttachmentError(`You can attach up to ${MAX_ATTACHMENTS} files per message.`)
+      return
+    }
 
-    setAttachments((current) => [...current, ...nextAttachments])
-    event.target.value = ''
+    const candidateFiles = files.slice(0, availableSlots)
+    if (candidateFiles.length < files.length) {
+      errors.push(`Only ${MAX_ATTACHMENTS} files can be attached per message.`)
+    }
+
+    let nextTotalBytes = totalPendingAttachmentBytes
+    const acceptedFiles: File[] = []
+
+    for (const file of candidateFiles) {
+      if (!ALLOWED_ATTACHMENT_MIME_TYPES.has(file.type)) {
+        errors.push(`${file.name}: unsupported file type.`)
+        continue
+      }
+
+      if (file.size > MAX_ATTACHMENT_BYTES) {
+        errors.push(
+          `${file.name}: file exceeds ${formatMegabytes(MAX_ATTACHMENT_BYTES)} limit.`,
+        )
+        continue
+      }
+
+      if (nextTotalBytes + file.size > MAX_TOTAL_ATTACHMENT_BYTES) {
+        errors.push(
+          `Total attachment size exceeds ${formatMegabytes(MAX_TOTAL_ATTACHMENT_BYTES)}.`,
+        )
+        break
+      }
+
+      acceptedFiles.push(file)
+      nextTotalBytes += file.size
+    }
+
+    if (acceptedFiles.length === 0) {
+      setAttachmentError(errors.join(' ') || 'No files were added.')
+      return
+    }
+
+    loadingAttachmentsRef.current = true
+    setIsLoadingAttachments(true)
+
+    try {
+      const results = await Promise.allSettled(
+        acceptedFiles.map((file) => readFileAsAttachment(file)),
+      )
+      const loadedAttachments: PendingAttachment[] = []
+      let failedCount = 0
+
+      for (const result of results) {
+        if (result.status === 'fulfilled') {
+          loadedAttachments.push(result.value)
+        } else {
+          failedCount += 1
+        }
+      }
+
+      if (loadedAttachments.length > 0) {
+        setPendingAttachments((current) => [...current, ...loadedAttachments])
+      }
+
+      if (failedCount > 0) {
+        errors.push(`${failedCount} file(s) could not be loaded.`)
+      }
+      setAttachmentError(errors.length > 0 ? errors.join(' ') : null)
+    } finally {
+      loadingAttachmentsRef.current = false
+      setIsLoadingAttachments(false)
+    }
   }
 
   const removeAttachment = (index: number) => {
-    setAttachments((current) => current.filter((_, i) => i !== index))
+    setPendingAttachments((current) => current.filter((_, i) => i !== index))
+    setAttachmentError(null)
   }
 
   const sendMessage = async () => {
     const text = input.trim()
-    if ((!text && attachments.length === 0) || loading) return
+    if (loadingAttachmentsRef.current) {
+      setAttachmentError('Please wait until files finish loading.')
+      return
+    }
+    if ((!text && pendingAttachments.length === 0) || loading) return
+
+    const requestAttachments: RequestAttachment[] = pendingAttachments.map(
+      ({ name, mimeType, dataUrl }) => ({ name, mimeType, dataUrl }),
+    )
+    const messageAttachments: AttachmentMeta[] = pendingAttachments.map(
+      ({ name, mimeType }) => ({ name, mimeType }),
+    )
 
     const userMessage: Message = {
       role: 'user',
       content: text,
-      attachments: attachments.length > 0 ? attachments : undefined,
+      attachments: messageAttachments.length > 0 ? messageAttachments : undefined,
     }
     const updatedMessages = [...messages, userMessage]
+    const requestMessages: RequestMessage[] = updatedMessages.map((message, index) => {
+      const requestMessage: RequestMessage = {
+        role: message.role,
+        content: message.content,
+      }
+      if (
+        index === updatedMessages.length - 1 &&
+        message.role === 'user' &&
+        requestAttachments.length > 0
+      ) {
+        requestMessage.attachments = requestAttachments
+      }
+      return requestMessage
+    })
+
     setMessages(updatedMessages)
     setInput('')
-    setAttachments([])
+    setPendingAttachments([])
+    setAttachmentError(null)
     setLoading(true)
 
     try {
       const body = JSON.stringify({
-        messages: updatedMessages,
+        messages: requestMessages,
         model: settings.model,
         systemPrompt: settings.systemPrompt,
         temperature: settings.temperature,
@@ -288,18 +440,29 @@ function App() {
       <section className="chat-settings">
         <label>
           Model
-          <input
+          <select
             value={settings.model}
-            onChange={(e) => setSettings({ ...settings, model: e.target.value })}
+            onChange={(e) =>
+              setSettings((current) => ({ ...current, model: e.target.value }))
+            }
             disabled={loading}
-          />
+          >
+            {MODEL_OPTIONS.map((model) => (
+              <option key={model} value={model}>
+                {model}
+              </option>
+            ))}
+          </select>
         </label>
         <label>
           System Prompt
           <input
             value={settings.systemPrompt}
             onChange={(e) =>
-              setSettings({ ...settings, systemPrompt: e.target.value })
+              setSettings((current) => ({
+                ...current,
+                systemPrompt: e.target.value,
+              }))
             }
             disabled={loading}
           />
@@ -312,9 +475,15 @@ function App() {
             max={2}
             step={0.1}
             value={settings.temperature}
-            onChange={(e) =>
-              setSettings({ ...settings, temperature: Number(e.target.value) })
-            }
+            onChange={(e) => {
+              if (e.target.value.trim() === '') return
+              const parsed = Number.parseFloat(e.target.value)
+              if (!Number.isFinite(parsed)) return
+              setSettings((current) => ({
+                ...current,
+                temperature: clamp(parsed, MIN_TEMPERATURE, MAX_TEMPERATURE),
+              }))
+            }}
             disabled={loading}
           />
         </label>
@@ -325,9 +494,15 @@ function App() {
             min={1}
             max={4096}
             value={settings.maxOutputTokens}
-            onChange={(e) =>
-              setSettings({ ...settings, maxOutputTokens: Number(e.target.value) })
-            }
+            onChange={(e) => {
+              if (e.target.value.trim() === '') return
+              const parsed = Number.parseInt(e.target.value, 10)
+              if (!Number.isFinite(parsed)) return
+              setSettings((current) => ({
+                ...current,
+                maxOutputTokens: clamp(parsed, MIN_OUTPUT_TOKENS, MAX_OUTPUT_TOKENS),
+              }))
+            }}
             disabled={loading}
           />
         </label>
@@ -368,35 +543,45 @@ function App() {
         />
         <div className="chat-input-actions">
           <label className="file-picker">
-            Attach
+            <span>Attach</span>
             <input
+              className="file-picker-input"
               type="file"
               accept="application/pdf,image/*"
               multiple
               onChange={handleFileChange}
-              disabled={loading}
+              disabled={loading || isLoadingAttachments}
             />
           </label>
           <button
             onClick={sendMessage}
-            disabled={loading || (!input.trim() && attachments.length === 0)}
+            disabled={
+              loading ||
+              isLoadingAttachments ||
+              (!input.trim() && pendingAttachments.length === 0)
+            }
           >
-            Send
+            {isLoadingAttachments ? 'Loading files...' : 'Send'}
           </button>
         </div>
       </div>
-      {attachments.length > 0 && (
+      {pendingAttachments.length > 0 && (
         <div className="pending-attachments">
-          {attachments.map((attachment, index) => (
+          {pendingAttachments.map((attachment, index) => (
             <button
               key={`${attachment.name}-${index}`}
               onClick={() => removeAttachment(index)}
-              disabled={loading}
+              disabled={loading || isLoadingAttachments}
             >
               {attachment.name} ×
             </button>
           ))}
         </div>
+      )}
+      {attachmentError && (
+        <p className="attachment-error" role="alert">
+          {attachmentError}
+        </p>
       )}
     </div>
   )

@@ -1,6 +1,7 @@
 """Chat API backend using FastAPI + Mangum for AWS Lambda."""
 
 import logging
+import re
 import time
 from functools import lru_cache
 from typing import Any, Literal
@@ -9,7 +10,7 @@ import boto3
 from fastapi import APIRouter, FastAPI, HTTPException
 from mangum import Mangum
 from openai import OpenAI
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -20,6 +21,20 @@ router = APIRouter(prefix="/api")
 SSM_PARAMETER_NAME = "/chat-app/openai-api-key"
 AWS_REGION = "ap-northeast-1"
 DEFAULT_MODEL = "gpt-4o-mini"
+ALLOWED_MODELS = {"gpt-4o-mini", "gpt-4.1-mini"}
+IMAGE_ATTACHMENT_MIME_TYPES = {"image/png", "image/jpeg", "image/webp", "image/gif"}
+PDF_ATTACHMENT_MIME_TYPE = "application/pdf"
+ALLOWED_ATTACHMENT_MIME_TYPES = IMAGE_ATTACHMENT_MIME_TYPES | {PDF_ATTACHMENT_MIME_TYPE}
+MAX_ATTACHMENT_BASE64_LENGTH = 2_800_000
+MAX_TOTAL_ATTACHMENT_BASE64_LENGTH = 5_600_000
+DATA_URL_PATTERN = re.compile(r"^data:(?P<mime>[-.\w+/]+);base64,(?P<payload>[A-Za-z0-9+/=]+)$")
+
+
+def _parse_data_url(data_url: str) -> tuple[str, str]:
+    match = DATA_URL_PATTERN.fullmatch(data_url)
+    if not match:
+        raise ValueError("dataUrl must be a base64 data URL")
+    return match.group("mime"), match.group("payload")
 
 
 @lru_cache(maxsize=1)
@@ -38,11 +53,48 @@ class Attachment(BaseModel):
     mime_type: str = Field(alias="mimeType")
     data_url: str = Field(alias="dataUrl")
 
+    @field_validator("mime_type")
+    @classmethod
+    def validate_mime_type(cls, mime_type: str) -> str:
+        if mime_type not in ALLOWED_ATTACHMENT_MIME_TYPES:
+            raise ValueError(f"Unsupported attachment mimeType: {mime_type}")
+        return mime_type
+
+    @model_validator(mode="after")
+    def validate_data_url(self) -> "Attachment":
+        data_url_mime, payload = _parse_data_url(self.data_url)
+        if data_url_mime != self.mime_type:
+            raise ValueError("mimeType must match dataUrl content type")
+        if len(payload) > MAX_ATTACHMENT_BASE64_LENGTH:
+            raise ValueError(
+                "Attachment dataUrl is too large: "
+                f"limit is {MAX_ATTACHMENT_BASE64_LENGTH} base64 chars"
+            )
+        return self
+
+    def payload_size(self) -> int:
+        _, payload = _parse_data_url(self.data_url)
+        return len(payload)
+
 
 class Message(BaseModel):
     role: Literal["user", "assistant"]
     content: str
     attachments: list[Attachment] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def validate_attachments(self) -> "Message":
+        if self.attachments and self.role != "user":
+            raise ValueError("Attachments are only supported for user messages")
+
+        total_payload_size = sum(attachment.payload_size() for attachment in self.attachments)
+        if total_payload_size > MAX_TOTAL_ATTACHMENT_BASE64_LENGTH:
+            raise ValueError(
+                "Total attachment payload is too large: "
+                f"limit is {MAX_TOTAL_ATTACHMENT_BASE64_LENGTH} base64 chars"
+            )
+
+        return self
 
 
 class ChatRequest(BaseModel):
@@ -53,6 +105,29 @@ class ChatRequest(BaseModel):
     system_prompt: str | None = Field(default=None, alias="systemPrompt")
     temperature: float = Field(default=0.7, ge=0, le=2)
     max_output_tokens: int = Field(default=1000, alias="maxOutputTokens", ge=1, le=4096)
+
+    @field_validator("model")
+    @classmethod
+    def validate_model(cls, model: str) -> str:
+        if model not in ALLOWED_MODELS:
+            raise ValueError(
+                f"Unsupported model: {model}. Allowed models: {', '.join(sorted(ALLOWED_MODELS))}"
+            )
+        return model
+
+    @model_validator(mode="after")
+    def validate_total_request_attachment_size(self) -> "ChatRequest":
+        total_payload_size = sum(
+            attachment.payload_size()
+            for message in self.messages
+            for attachment in message.attachments
+        )
+        if total_payload_size > MAX_TOTAL_ATTACHMENT_BASE64_LENGTH:
+            raise ValueError(
+                "Total request attachment payload is too large: "
+                f"limit is {MAX_TOTAL_ATTACHMENT_BASE64_LENGTH} base64 chars"
+            )
+        return self
 
 
 class ChatResponse(BaseModel):
@@ -65,15 +140,24 @@ def _build_content_parts(message: Message) -> list[dict[str, Any]]:
         parts.append({"type": "input_text", "text": message.content})
 
     for attachment in message.attachments:
-        if attachment.mime_type.startswith("image/"):
+        if attachment.mime_type in IMAGE_ATTACHMENT_MIME_TYPES:
             parts.append({"type": "input_image", "image_url": attachment.data_url})
-        elif attachment.mime_type == "application/pdf":
+        elif attachment.mime_type == PDF_ATTACHMENT_MIME_TYPE:
             parts.append(
                 {
                     "type": "input_file",
                     "filename": attachment.name,
                     "file_data": attachment.data_url,
                 }
+            )
+        else:
+            logger.warning(
+                "Unsupported attachment mime_type",
+                extra={"mime_type": attachment.mime_type, "attachment_name": attachment.name},
+            )
+            raise HTTPException(
+                status_code=400,
+                detail=f"Unsupported attachment mimeType: {attachment.mime_type}",
             )
     return parts
 
@@ -94,7 +178,7 @@ def chat(request: ChatRequest) -> ChatResponse:
     try:
         start = time.time()
         response = client.responses.create(
-            model=request.model or DEFAULT_MODEL,
+            model=request.model,
             instructions=request.system_prompt or None,
             input=input_messages,
             temperature=request.temperature,
