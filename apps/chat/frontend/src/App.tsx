@@ -1,4 +1,12 @@
-import { useEffect, useRef, useState, type ChangeEvent, type KeyboardEvent } from 'react'
+import {
+  Fragment,
+  useEffect,
+  useRef,
+  useState,
+  type ChangeEvent,
+  type KeyboardEvent,
+  type ReactNode,
+} from 'react'
 import './App.css'
 
 async function sha256Hex(message: string): Promise<string> {
@@ -8,46 +16,137 @@ async function sha256Hex(message: string): Promise<string> {
   return hashArray.map((b) => b.toString(16).padStart(2, '0')).join('')
 }
 
-function escapeHtml(value: string): string {
-  return value
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;')
-    .replaceAll("'", '&#39;')
+function renderInlineMarkdown(text: string): ReactNode[] {
+  const nodes: ReactNode[] = []
+  const tokenRegex = /(\*\*[^*]+\*\*|\*[^*]+\*|`[^`]+`|\[[^\]]+\]\((https?:\/\/[^\s)]+)\))/g
+  let lastIndex = 0
+  let match = tokenRegex.exec(text)
+
+  while (match !== null) {
+    if (match.index > lastIndex) {
+      nodes.push(text.slice(lastIndex, match.index))
+    }
+
+    const token = match[0]
+    if (token.startsWith('**') && token.endsWith('**')) {
+      nodes.push(<strong key={`${match.index}-bold`}>{token.slice(2, -2)}</strong>)
+    } else if (token.startsWith('*') && token.endsWith('*')) {
+      nodes.push(<em key={`${match.index}-italic`}>{token.slice(1, -1)}</em>)
+    } else if (token.startsWith('`') && token.endsWith('`')) {
+      nodes.push(<code key={`${match.index}-code`}>{token.slice(1, -1)}</code>)
+    } else {
+      const linkMatch = token.match(/^\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)$/)
+      if (linkMatch) {
+        nodes.push(
+          <a key={`${match.index}-link`} href={linkMatch[2]} target="_blank" rel="noreferrer">
+            {linkMatch[1]}
+          </a>,
+        )
+      } else {
+        nodes.push(token)
+      }
+    }
+
+    lastIndex = tokenRegex.lastIndex
+    match = tokenRegex.exec(text)
+  }
+
+  if (lastIndex < text.length) {
+    nodes.push(text.slice(lastIndex))
+  }
+
+  return nodes
 }
 
-function renderMarkdown(text: string): string {
-  const escaped = escapeHtml(text)
-  const withCodeBlocks = escaped.replace(/```([\s\S]*?)```/g, (_, code: string) => {
-    return `<pre><code>${code.trim()}</code></pre>`
-  })
+function renderMarkdown(message: string): ReactNode[] {
+  const lines = message.split('\n')
+  const nodes: ReactNode[] = []
+  let index = 0
 
-  const lines = withCodeBlocks.split('\n').map((line) => {
-    if (line.startsWith('### ')) return `<h3>${line.slice(4)}</h3>`
-    if (line.startsWith('## ')) return `<h2>${line.slice(3)}</h2>`
-    if (line.startsWith('# ')) return `<h1>${line.slice(2)}</h1>`
-    if (line.startsWith('- ')) return `<li>${line.slice(2)}</li>`
-    return line
-  })
+  while (index < lines.length) {
+    const line = lines[index]
 
-  const withLists = lines
-    .join('\n')
-    .replace(/(<li>.*?<\/li>\n?)+/gs, (list: string) => `<ul>${list}</ul>`)
-
-  return withLists
-    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
-    .replace(/\*(.+?)\*/g, '<em>$1</em>')
-    .replace(/`(.+?)`/g, '<code>$1</code>')
-    .replace(/\[(.+?)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noreferrer">$1</a>')
-    .split(/\n{2,}/)
-    .map((block) => {
-      if (block.startsWith('<h') || block.startsWith('<ul>') || block.startsWith('<pre>')) {
-        return block
+    if (line.startsWith('```')) {
+      const codeLines: string[] = []
+      index += 1
+      while (index < lines.length && !lines[index].startsWith('```')) {
+        codeLines.push(lines[index])
+        index += 1
       }
-      return `<p>${block.replaceAll('\n', '<br/>')}</p>`
-    })
-    .join('')
+      nodes.push(
+        <pre key={`pre-${index}`}>
+          <code>{codeLines.join('\n')}</code>
+        </pre>,
+      )
+      index += 1
+      continue
+    }
+
+    if (line.startsWith('### ')) {
+      nodes.push(<h3 key={`h3-${index}`}>{renderInlineMarkdown(line.slice(4))}</h3>)
+      index += 1
+      continue
+    }
+
+    if (line.startsWith('## ')) {
+      nodes.push(<h2 key={`h2-${index}`}>{renderInlineMarkdown(line.slice(3))}</h2>)
+      index += 1
+      continue
+    }
+
+    if (line.startsWith('# ')) {
+      nodes.push(<h1 key={`h1-${index}`}>{renderInlineMarkdown(line.slice(2))}</h1>)
+      index += 1
+      continue
+    }
+
+    if (line.startsWith('- ')) {
+      const items: string[] = []
+      while (index < lines.length && lines[index].startsWith('- ')) {
+        items.push(lines[index].slice(2))
+        index += 1
+      }
+      nodes.push(
+        <ul key={`ul-${index}`}>
+          {items.map((item, itemIndex) => (
+            <li key={`li-${index}-${itemIndex}`}>{renderInlineMarkdown(item)}</li>
+          ))}
+        </ul>,
+      )
+      continue
+    }
+
+    if (line.trim() === '') {
+      index += 1
+      continue
+    }
+
+    const paragraph: string[] = [line]
+    index += 1
+    while (
+      index < lines.length &&
+      lines[index].trim() !== '' &&
+      !lines[index].startsWith('#') &&
+      !lines[index].startsWith('- ') &&
+      !lines[index].startsWith('```')
+    ) {
+      paragraph.push(lines[index])
+      index += 1
+    }
+
+    nodes.push(
+      <p key={`p-${index}`}>
+        {paragraph.map((text, lineIndex) => (
+          <Fragment key={`p-${index}-${lineIndex}`}>
+            {lineIndex > 0 && <br />}
+            {renderInlineMarkdown(text)}
+          </Fragment>
+        ))}
+      </p>,
+    )
+  }
+
+  return nodes
 }
 
 interface Attachment {
@@ -238,10 +337,7 @@ function App() {
         {messages.map((msg, i) => (
           <div key={i} className={`chat-message ${msg.role}`}>
             <div className="chat-message-role">{msg.role === 'user' ? 'You' : 'AI'}</div>
-            <div
-              className="chat-message-content markdown"
-              dangerouslySetInnerHTML={{ __html: renderMarkdown(msg.content) }}
-            />
+            <div className="chat-message-content markdown">{renderMarkdown(msg.content)}</div>
             {msg.attachments && msg.attachments.length > 0 && (
               <ul className="attachment-list">
                 {msg.attachments.map((attachment, index) => (
