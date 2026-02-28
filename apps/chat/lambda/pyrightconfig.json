@@ -4,5 +4,6 @@
   "include": ["."],
   "venvPath": ".",
   "venv": ".venv",
-  "reportMissingTypeStubs": false
+  "reportMissingTypeStubs": false,
+  "reportMissingModuleSource": false
 }
