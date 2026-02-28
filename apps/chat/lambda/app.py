@@ -41,7 +41,9 @@ ALLOWED_MODELS = {
 
 ALLOWED_CONTENT_TYPES = {"input_text", "input_image", "input_file", "output_text"}
 
-# 5 MB per file (base64 ≈ 4/3× original, so ~3.75 MB original)
+ALLOWED_FILE_MIMES = {"application/pdf", "image/png", "image/jpeg", "image/gif", "image/webp"}
+
+# Max length of base64-encoded data URI string (~3.75 MB original file size).
 MAX_FILE_DATA_LENGTH = 5 * 1024 * 1024
 
 
@@ -63,9 +65,16 @@ class ContentItem(BaseModel):
     @field_validator("file_data")
     @classmethod
     def validate_file_data(cls, v: str | None) -> str | None:
-        if v is not None and len(v) > MAX_FILE_DATA_LENGTH:
-            msg = "File data exceeds maximum size (5 MB)"
-            raise ValueError(msg)
+        if v is not None:
+            if len(v) > MAX_FILE_DATA_LENGTH:
+                msg = "File data exceeds maximum size (5 MB)"
+                raise ValueError(msg)
+            # Validate data URI MIME type (e.g. data:application/pdf;base64,...)
+            if v.startswith("data:"):
+                mime = v.split(";")[0].removeprefix("data:")
+                if mime not in ALLOWED_FILE_MIMES:
+                    msg = f"Unsupported file MIME type: {mime}"
+                    raise ValueError(msg)
         return v
 
     @field_validator("image_url")
@@ -85,12 +94,19 @@ class ContentItem(BaseModel):
         if self.type == "input_text" and not self.text:
             msg = "input_text requires 'text' field"
             raise ValueError(msg)
+        if self.type == "output_text" and not self.text:
+            msg = "output_text requires 'text' field"
+            raise ValueError(msg)
         if self.type == "input_image" and not self.image_url:
             msg = "input_image requires 'image_url' field"
             raise ValueError(msg)
-        if self.type == "input_file" and not self.file_data:
-            msg = "input_file requires 'file_data' field"
-            raise ValueError(msg)
+        if self.type == "input_file":
+            if not self.file_data:
+                msg = "input_file requires 'file_data' field"
+                raise ValueError(msg)
+            if not self.filename:
+                msg = "input_file requires 'filename' field"
+                raise ValueError(msg)
         return self
 
 

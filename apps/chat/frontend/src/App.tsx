@@ -54,6 +54,12 @@ function getMessageAttachments(content: string | ContentItem[]): ContentItem[] {
   )
 }
 
+function getFileExtLabel(filename: string | undefined): string {
+  if (!filename) return 'FILE'
+  const ext = filename.split('.').pop()?.toUpperCase()
+  return ext ?? 'FILE'
+}
+
 const SAFE_URL_SCHEMES = /^https?:\/\//i
 
 function sanitizeHref(href: string | undefined): string | undefined {
@@ -113,7 +119,12 @@ function App() {
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files
     if (!files) return
+    const MAX_FILE_SIZE = 3.5 * 1024 * 1024 // ~3.5 MB (base64 → ~4.7 MB)
     Array.from(files).forEach((file) => {
+      if (file.size > MAX_FILE_SIZE) {
+        alert(`${file.name} is too large (max 3.5 MB)`)
+        return
+      }
       const reader = new FileReader()
       reader.onload = () => {
         setAttachments((prev) => [
@@ -297,7 +308,7 @@ function App() {
               {att.type.startsWith('image/') ? (
                 <img src={att.dataUrl} alt={att.name} className="attachment-thumb" />
               ) : (
-                <span className="attachment-icon">PDF</span>
+                <span className="attachment-icon">{getFileExtLabel(att.name)}</span>
               )}
               <span className="attachment-name">{att.name}</span>
               <button
