@@ -104,9 +104,7 @@ def chat(request: ChatRequest) -> ChatResponse:
             extra={
                 "openai_duration_ms": duration_ms,
                 "model": response.model,
-                "usage_prompt_tokens": (
-                    response.usage.input_tokens if response.usage else None
-                ),
+                "usage_prompt_tokens": (response.usage.input_tokens if response.usage else None),
                 "usage_completion_tokens": (
                     response.usage.output_tokens if response.usage else None
                 ),
