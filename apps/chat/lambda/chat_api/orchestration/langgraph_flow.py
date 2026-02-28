@@ -1,7 +1,7 @@
 """LangGraph-based orchestration strategy for chat execution."""
 
 from collections.abc import Mapping
-from typing import TypedDict
+from typing import NotRequired, TypedDict, cast
 
 from langgraph.graph import END, START, StateGraph
 
@@ -16,7 +16,7 @@ class ChatGraphState(TypedDict):
     request: ChatRequest
     capability: ModelCapability
     message_count: int
-    response: ProviderResponse
+    response: NotRequired[ProviderResponse]
 
 
 class LangGraphChatOrchestrator(ChatOrchestrator):
@@ -45,11 +45,13 @@ class LangGraphChatOrchestrator(ChatOrchestrator):
     def run(
         self, request: ChatRequest, capability: ModelCapability, message_count: int
     ) -> ProviderResponse:
-        result = self._graph.invoke(
-            {
-                "request": request,
-                "capability": capability,
-                "message_count": message_count,
-            }
-        )
-        return result["response"]
+        initial_state: ChatGraphState = {
+            "request": request,
+            "capability": capability,
+            "message_count": message_count,
+        }
+        result = cast("ChatGraphState", self._graph.invoke(initial_state))
+        response = result.get("response")
+        if response is None:
+            raise RuntimeError("LangGraph execution did not return a provider response")
+        return response

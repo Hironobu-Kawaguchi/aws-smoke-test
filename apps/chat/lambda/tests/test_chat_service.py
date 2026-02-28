@@ -3,14 +3,14 @@ from unittest.mock import Mock
 
 from chat_api.model_registry import MODEL_CAPABILITIES
 from chat_api.providers.base import ProviderResponse
-from chat_api.schemas import ChatRequest
+from chat_api.schemas import ChatRequest, Message
 from chat_api.services.chat_service import ChatService
 
 
 class ChatServiceTests(unittest.TestCase):
     def test_handle_chat_delegates_to_orchestrator_and_maps_response(self) -> None:
         request = ChatRequest(
-            messages=[{"role": "user", "content": "hello"}],
+            messages=[Message(role="user", content="hello")],
             model="gpt-4.1-mini",
         )
         capability = MODEL_CAPABILITIES[request.model]

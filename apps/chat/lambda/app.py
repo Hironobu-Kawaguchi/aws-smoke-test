@@ -36,8 +36,10 @@ OrchestratorKind = Literal["direct", "langgraph"]
 
 def _resolve_orchestrator_kind() -> OrchestratorKind:
     value = os.environ.get("CHAT_ORCHESTRATOR", "direct").strip().lower()
-    if value in {"direct", "langgraph"}:
-        return value
+    if value == "direct":
+        return "direct"
+    if value == "langgraph":
+        return "langgraph"
 
     logger.warning(
         "Unsupported CHAT_ORCHESTRATOR value; falling back to direct",

@@ -4,7 +4,7 @@ from chat_api.model_registry import MODEL_CAPABILITIES
 from chat_api.orchestration.direct import DirectChatOrchestrator
 from chat_api.orchestration.langgraph_flow import LangGraphChatOrchestrator
 from chat_api.providers.base import ProviderResponse
-from chat_api.schemas import ChatRequest
+from chat_api.schemas import ChatRequest, Message
 
 
 class StubProvider:
@@ -22,7 +22,7 @@ class StubProvider:
 class OrchestratorTests(unittest.TestCase):
     def setUp(self) -> None:
         self.request = ChatRequest(
-            messages=[{"role": "user", "content": "hello"}],
+            messages=[Message(role="user", content="hello")],
             model="gpt-4.1-mini",
         )
         self.capability = MODEL_CAPABILITIES[self.request.model]

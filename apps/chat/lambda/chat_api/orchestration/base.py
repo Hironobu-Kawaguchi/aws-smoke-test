@@ -12,3 +12,4 @@ class ChatOrchestrator(Protocol):
         self, request: ChatRequest, capability: ModelCapability, message_count: int
     ) -> ProviderResponse:
         """Execute the chat request using the selected orchestration strategy."""
+        ...

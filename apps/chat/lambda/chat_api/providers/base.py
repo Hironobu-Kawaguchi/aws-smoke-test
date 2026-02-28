@@ -21,3 +21,4 @@ class ChatProvider(Protocol):
         self, request: ChatRequest, capability: ModelCapability, message_count: int
     ) -> ProviderResponse:
         """Invoke a provider with normalized chat request data."""
+        ...
