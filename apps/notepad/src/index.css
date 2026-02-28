@@ -1,11 +1,27 @@
 :root {
-  font-family: system-ui, -apple-system, sans-serif;
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
   line-height: 1.5;
   font-weight: 400;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 
   color-scheme: light dark;
-  color: rgba(255, 255, 255, 0.87);
-  background-color: #1a1a1a;
+
+  --color-bg: #0f0f0f;
+  --color-surface: #1a1a1a;
+  --color-border: rgba(255, 255, 255, 0.08);
+  --color-text: rgba(255, 255, 255, 0.92);
+  --color-text-secondary: rgba(255, 255, 255, 0.5);
+  --color-accent: #6366f1;
+  --color-accent-hover: #818cf8;
+  --color-btn-bg: rgba(255, 255, 255, 0.06);
+  --color-btn-hover: rgba(255, 255, 255, 0.1);
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --transition: 150ms ease;
+
+  color: var(--color-text);
+  background-color: var(--color-bg);
 }
 
 * {
@@ -17,35 +33,43 @@ body {
 }
 
 button {
-  border-radius: 6px;
-  border: 1px solid transparent;
-  padding: 0.4em 1em;
-  font-size: 0.9em;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border);
+  padding: 0.45em 1.1em;
+  font-size: 0.875em;
   font-weight: 500;
   font-family: inherit;
-  background-color: #333;
+  background-color: var(--color-btn-bg);
   color: inherit;
   cursor: pointer;
+  transition: all var(--transition);
 }
 
 button:hover:not(:disabled) {
-  border-color: #646cff;
+  background-color: var(--color-btn-hover);
+  border-color: var(--color-accent);
+}
+
+button:active:not(:disabled) {
+  transform: scale(0.97);
 }
 
 button:disabled {
-  opacity: 0.5;
+  opacity: 0.4;
   cursor: default;
 }
 
 @media (prefers-color-scheme: light) {
   :root {
-    color: #213547;
-    background-color: #ffffff;
-  }
-  .notepad-header {
-    border-bottom-color: #ddd;
-  }
-  button {
-    background-color: #f0f0f0;
+    --color-bg: #fafafa;
+    --color-surface: #ffffff;
+    --color-border: rgba(0, 0, 0, 0.08);
+    --color-text: #1a1a2e;
+    --color-text-secondary: rgba(0, 0, 0, 0.45);
+    --color-btn-bg: rgba(0, 0, 0, 0.04);
+    --color-btn-hover: rgba(0, 0, 0, 0.08);
+
+    color: var(--color-text);
+    background-color: var(--color-bg);
   }
 }
