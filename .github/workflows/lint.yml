@@ -27,11 +27,11 @@ jobs:
 
       - name: TypeScript type check
         working-directory: ${{ matrix.app }}
-        run: npx tsc -b
+        run: npx tsc -b --pretty
 
       - name: ESLint
         working-directory: ${{ matrix.app }}
-        run: npm run lint
+        run: npx eslint . --format compact
 
   python-lint:
     runs-on: ubuntu-latest
@@ -42,12 +42,15 @@ jobs:
         with:
           python-version: '3.13'
 
-      - run: pip install ruff
+      - name: Install ruff
+        run: |
+          pip install ruff
+          ruff version
 
       - name: Ruff check
         working-directory: apps/chat/lambda
-        run: ruff check .
+        run: ruff check --output-format=github .
 
       - name: Ruff format check
         working-directory: apps/chat/lambda
-        run: ruff format --check .
+        run: ruff format --check --diff .
