@@ -12,6 +12,7 @@ import boto3
 from fastapi import APIRouter, FastAPI, HTTPException
 from langchain_core.runnables import Runnable, RunnableLambda
 from langsmith import traceable
+from langsmith.run_trees import get_cached_client
 from mangum import Mangum
 from openai import OpenAI
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -163,6 +164,17 @@ def _configure_langsmith(langsmith_api_key: str | None) -> None:
     os.environ["LANGSMITH_TRACING"] = "true"
     os.environ["LANGSMITH_API_KEY"] = langsmith_api_key
     os.environ.setdefault("LANGSMITH_PROJECT", LANGSMITH_PROJECT)
+
+
+def _flush_langsmith_traces() -> None:
+    if os.environ.get("LANGSMITH_TRACING", "").lower() != "true":
+        return
+    if not os.environ.get("LANGSMITH_API_KEY"):
+        return
+    try:
+        get_cached_client().flush()
+    except Exception:
+        logger.warning("Failed to flush LangSmith traces", exc_info=True)
 
 
 @lru_cache(maxsize=1)
@@ -422,6 +434,8 @@ def chat(request: ChatRequest) -> ChatResponse:
     except Exception as e:
         logger.exception("OpenAI API call failed")
         raise HTTPException(status_code=502, detail=str(e)) from e
+    finally:
+        _flush_langsmith_traces()
 
 
 @router.get("/health")
