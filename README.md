@@ -124,6 +124,22 @@ uvicorn app:app --reload --port 8000
 ローカルで `/api/chat` を使う場合、AWS 認証情報と SSM パラメータ
 `/chat-app/openai-api-key`, `/chat-app/langsmith-api-key` が必要です。
 
+オーケストレーション実行方式は環境変数で切り替えできます（デフォルト: `direct`）。
+
+```zsh
+export CHAT_ORCHESTRATOR=direct   # or langgraph
+```
+
+### chat backend テスト (開発専用)
+
+`pytest` は開発・CI 専用です。Lambda 本番デプロイの `requirements.txt` には含めません。
+
+```zsh
+cd apps/chat/lambda
+uv pip install --python .venv/bin/python -r requirements.txt pytest boto3
+.venv/bin/python -m pytest -q
+```
+
 ## リンティング
 
 PR / main push 時に CI (`.github/workflows/lint.yml`) が自動実行されます。ローカルで事前チェック:
