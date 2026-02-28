@@ -3,13 +3,13 @@
 import logging
 import time
 from functools import lru_cache
-from typing import Any
+from typing import Any, Literal
 
 import boto3
 from fastapi import APIRouter, FastAPI, HTTPException
 from mangum import Mangum
 from openai import OpenAI
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -32,23 +32,27 @@ def get_openai_client() -> OpenAI:
 
 
 class Attachment(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
     name: str
-    mimeType: str
-    dataUrl: str
+    mime_type: str = Field(alias="mimeType")
+    data_url: str = Field(alias="dataUrl")
 
 
 class Message(BaseModel):
-    role: str
+    role: Literal["user", "assistant"]
     content: str
     attachments: list[Attachment] = Field(default_factory=list)
 
 
 class ChatRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
     messages: list[Message]
     model: str = DEFAULT_MODEL
-    systemPrompt: str | None = None
-    temperature: float = 0.7
-    maxOutputTokens: int = 1000
+    system_prompt: str | None = Field(default=None, alias="systemPrompt")
+    temperature: float = Field(default=0.7, ge=0, le=2)
+    max_output_tokens: int = Field(default=1000, alias="maxOutputTokens", ge=1, le=4096)
 
 
 class ChatResponse(BaseModel):
@@ -61,14 +65,14 @@ def _build_content_parts(message: Message) -> list[dict[str, Any]]:
         parts.append({"type": "input_text", "text": message.content})
 
     for attachment in message.attachments:
-        if attachment.mimeType.startswith("image/"):
-            parts.append({"type": "input_image", "image_url": attachment.dataUrl})
-        elif attachment.mimeType == "application/pdf":
+        if attachment.mime_type.startswith("image/"):
+            parts.append({"type": "input_image", "image_url": attachment.data_url})
+        elif attachment.mime_type == "application/pdf":
             parts.append(
                 {
                     "type": "input_file",
                     "filename": attachment.name,
-                    "file_data": attachment.dataUrl,
+                    "file_data": attachment.data_url,
                 }
             )
     return parts
@@ -91,10 +95,10 @@ def chat(request: ChatRequest) -> ChatResponse:
         start = time.time()
         response = client.responses.create(
             model=request.model or DEFAULT_MODEL,
-            instructions=request.systemPrompt or None,
+            instructions=request.system_prompt or None,
             input=input_messages,
             temperature=request.temperature,
-            max_output_tokens=request.maxOutputTokens,
+            max_output_tokens=request.max_output_tokens,
         )
         duration_ms = int((time.time() - start) * 1000)
         content = response.output_text or ""
