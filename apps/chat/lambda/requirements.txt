@@ -29,6 +29,17 @@ idna==3.11
     #   httpx
 jiter==0.13.0
     # via openai
+langchain==1.2.10
+    # via -r requirements.in
+langchain-core==1.1.0
+    # via
+    #   -r requirements.in
+    #   langchain
+langsmith==0.7.3
+    # via
+    #   -r requirements.in
+    #   langchain
+    #   langchain-core
 mangum==0.21.0
     # via -r requirements.in
 openai==2.24.0
@@ -50,6 +61,9 @@ typing-extensions==4.15.0
     # via
     #   anyio
     #   fastapi
+    #   langchain
+    #   langchain-core
+    #   langsmith
     #   mangum
     #   openai
     #   pydantic

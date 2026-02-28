@@ -23,7 +23,9 @@ Resources:
             Statement:
               - Effect: Allow
                 Action: ssm:GetParameter
-                Resource: !Sub 'arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/chat-app/openai-api-key'
+                Resource:
+                  - !Sub 'arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/chat-app/openai-api-key'
+                  - !Sub 'arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/chat-app/langsmith-api-key'
 
   ChatFunctionLogGroup:
     Type: AWS::Logs::LogGroup
@@ -46,6 +48,10 @@ Resources:
         ApplicationLogLevel: INFO
         SystemLogLevel: WARN
         LogGroup: !Sub '/aws/lambda/${AWS::StackName}-api'
+      Environment:
+        Variables:
+          LANGSMITH_TRACING: 'true'
+          LANGSMITH_PROJECT: aws-smoke-test
       TracingConfig:
         Mode: Active
       Code:

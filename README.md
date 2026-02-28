@@ -38,15 +38,26 @@ Settings > Secrets and variables > Actions > Variables に以下を追加：
 |----------|---|
 | `DEPLOY_ROLE_ARN` | GitHub Actions が assume するロールの ARN |
 
-### 3. Chat 用 OpenAI API キーを SSM に登録
+### 3. Chat 用 API キーを SSM に登録
 
-`chat` バックエンドは SSM Parameter Store の `/chat-app/openai-api-key` を参照します。
+`chat` バックエンドは SSM Parameter Store の以下を参照します。
+- `/chat-app/openai-api-key`
+- `/chat-app/langsmith-api-key`
 
 ```zsh
+# OpenAI API key
 aws ssm put-parameter \
   --name /chat-app/openai-api-key \
   --type SecureString \
   --value 'YOUR_OPENAI_API_KEY' \
+  --overwrite \
+  --region ap-northeast-1
+
+# LangSmith API key
+aws ssm put-parameter \
+  --name /chat-app/langsmith-api-key \
+  --type SecureString \
+  --value 'YOUR_LANGSMITH_API_KEY' \
   --overwrite \
   --region ap-northeast-1
 ```
@@ -110,7 +121,8 @@ pip install uvicorn
 uvicorn app:app --reload --port 8000
 ```
 
-ローカルで `/api/chat` を使う場合、AWS 認証情報と SSM パラメータ `/chat-app/openai-api-key` が必要です。
+ローカルで `/api/chat` を使う場合、AWS 認証情報と SSM パラメータ
+`/chat-app/openai-api-key`, `/chat-app/langsmith-api-key` が必要です。
 
 ## リンティング
 
@@ -140,4 +152,5 @@ Chat app の Lambda には以下のオブザーバビリティが設定されて
 
 - **構造化ログ**: JSON 形式（CloudWatch Logs、14日保持）
 - **X-Ray トレース**: コールドスタート・SSM/OpenAI API レイテンシの可視化
+- **LangSmith トレース**: LangChain Runnable と OpenAI 呼び出しトレースの可視化
 - **CloudWatch Alarms**: Lambda エラー検出 / p90 レイテンシ超過 → SNS メール通知

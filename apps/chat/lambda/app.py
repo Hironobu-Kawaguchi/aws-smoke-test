@@ -1,6 +1,7 @@
 """Chat API backend using FastAPI + Mangum for AWS Lambda."""
 
 import logging
+import os
 import re
 import time
 from dataclasses import dataclass
@@ -9,6 +10,8 @@ from typing import Any, Literal
 
 import boto3
 from fastapi import APIRouter, FastAPI, HTTPException
+from langchain_core.runnables import RunnableLambda
+from langsmith import traceable
 from mangum import Mangum
 from openai import OpenAI
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -19,8 +22,10 @@ logger.setLevel(logging.INFO)
 app = FastAPI()
 router = APIRouter(prefix="/api")
 
-SSM_PARAMETER_NAME = "/chat-app/openai-api-key"
+OPENAI_API_KEY_PARAMETER_NAME = "/chat-app/openai-api-key"
+LANGSMITH_API_KEY_PARAMETER_NAME = "/chat-app/langsmith-api-key"
 AWS_REGION = "ap-northeast-1"
+LANGSMITH_PROJECT = "aws-smoke-test"
 DEFAULT_MODEL = "gpt-4.1-mini"
 IMAGE_ATTACHMENT_MIME_TYPES = {"image/png", "image/jpeg", "image/webp", "image/gif"}
 PDF_ATTACHMENT_MIME_TYPE = "application/pdf"
@@ -111,15 +116,54 @@ def _parse_data_url(data_url: str) -> tuple[str, str]:
     return match.group("mime"), match.group("payload")
 
 
+@dataclass(frozen=True)
+class ApiCredentials:
+    openai_api_key: str
+    langsmith_api_key: str
+
+
+def _get_secure_parameter(ssm_client: Any, parameter_name: str) -> str:
+    result = ssm_client.get_parameter(Name=parameter_name, WithDecryption=True)
+    value = result["Parameter"].get("Value")
+    if not value:
+        raise RuntimeError(f"SSM parameter {parameter_name} has no value")
+    return value
+
+
+@lru_cache(maxsize=1)
+def get_api_credentials() -> ApiCredentials:
+    ssm_client = boto3.client("ssm", region_name=AWS_REGION)
+    return ApiCredentials(
+        openai_api_key=_get_secure_parameter(ssm_client, OPENAI_API_KEY_PARAMETER_NAME),
+        langsmith_api_key=_get_secure_parameter(ssm_client, LANGSMITH_API_KEY_PARAMETER_NAME),
+    )
+
+
+def _configure_langsmith(langsmith_api_key: str) -> None:
+    os.environ["LANGSMITH_TRACING"] = "true"
+    os.environ["LANGSMITH_API_KEY"] = langsmith_api_key
+    os.environ.setdefault("LANGSMITH_PROJECT", LANGSMITH_PROJECT)
+
+
 @lru_cache(maxsize=1)
 def get_openai_client() -> OpenAI:
-    """Retrieve OpenAI API key from SSM Parameter Store and create client."""
-    ssm = boto3.client("ssm", region_name=AWS_REGION)
-    result = ssm.get_parameter(Name=SSM_PARAMETER_NAME, WithDecryption=True)
-    api_key = result["Parameter"].get("Value")
-    if not api_key:
-        raise RuntimeError(f"SSM parameter {SSM_PARAMETER_NAME} has no value")
-    return OpenAI(api_key=api_key)
+    """Create an OpenAI client with LangSmith tracing configuration."""
+    credentials = get_api_credentials()
+    _configure_langsmith(credentials.langsmith_api_key)
+    return OpenAI(api_key=credentials.openai_api_key)
+
+
+@traceable(run_type="llm", name="openai.responses.create")
+def _invoke_openai_responses(request_params: dict[str, Any]) -> Any:
+    client = get_openai_client()
+    return client.responses.create(**request_params)
+
+
+@lru_cache(maxsize=1)
+def get_chat_responses_runnable() -> RunnableLambda:
+    return RunnableLambda(_invoke_openai_responses).with_config(
+        {"run_name": "chat_lambda_openai_responses"}
+    )
 
 
 class Attachment(BaseModel):
@@ -300,8 +344,9 @@ def chat(request: ChatRequest) -> ChatResponse:
         if content_parts:
             input_messages.append({"role": message.role, "content": content_parts})
 
-    client = get_openai_client()
     try:
+        # Ensure LangSmith environment variables are configured before runnable invocation.
+        get_openai_client()
         start = time.time()
         capability = MODEL_CAPABILITIES[request.model]
         request_params: dict[str, Any] = {
@@ -320,7 +365,17 @@ def chat(request: ChatRequest) -> ChatResponse:
         if request.previous_response_id:
             request_params["previous_response_id"] = request.previous_response_id
 
-        response = client.responses.create(**request_params)
+        response = get_chat_responses_runnable().invoke(
+            request_params,
+            config={
+                "run_name": "chat_lambda_request",
+                "tags": ["chat-api", request.model],
+                "metadata": {
+                    "message_count": message_count,
+                    "web_search_enabled": request.web_search_enabled,
+                },
+            },
+        )
         duration_ms = int((time.time() - start) * 1000)
         content = response.output_text or ""
 
