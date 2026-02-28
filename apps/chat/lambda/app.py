@@ -3,13 +3,13 @@
 import logging
 import time
 from functools import lru_cache
-from typing import Any
+from typing import Any, Literal
 
 import boto3
 from fastapi import APIRouter, FastAPI, HTTPException
 from mangum import Mangum
 from openai import OpenAI
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, field_validator, model_validator
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -68,9 +68,34 @@ class ContentItem(BaseModel):
             raise ValueError(msg)
         return v
 
+    @field_validator("image_url")
+    @classmethod
+    def validate_image_url(cls, v: str | None) -> str | None:
+        if v is not None:
+            if not v.startswith("data:image/"):
+                msg = "image_url must be a data:image/* URI"
+                raise ValueError(msg)
+            if len(v) > MAX_FILE_DATA_LENGTH:
+                msg = "image_url data exceeds maximum size (5 MB)"
+                raise ValueError(msg)
+        return v
+
+    @model_validator(mode="after")
+    def validate_fields_per_type(self) -> "ContentItem":
+        if self.type == "input_text" and not self.text:
+            msg = "input_text requires 'text' field"
+            raise ValueError(msg)
+        if self.type == "input_image" and not self.image_url:
+            msg = "input_image requires 'image_url' field"
+            raise ValueError(msg)
+        if self.type == "input_file" and not self.file_data:
+            msg = "input_file requires 'file_data' field"
+            raise ValueError(msg)
+        return self
+
 
 class Message(BaseModel):
-    role: str
+    role: Literal["user", "assistant"]
     content: str | list[ContentItem]
 
 

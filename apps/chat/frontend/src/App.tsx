@@ -54,13 +54,25 @@ function getMessageAttachments(content: string | ContentItem[]): ContentItem[] {
   )
 }
 
-/** Sanitize markdown: open links in new tab, block external images. */
+const SAFE_URL_SCHEMES = /^https?:\/\//i
+
+function sanitizeHref(href: string | undefined): string | undefined {
+  if (!href) return undefined
+  if (SAFE_URL_SCHEMES.test(href)) return href
+  return undefined
+}
+
+/** Sanitize markdown: restrict URL schemes, open links in new tab, block images. */
 const markdownComponents: Components = {
-  a: ({ href, children }) => (
-    <a href={href} target="_blank" rel="noopener noreferrer">
-      {children}
-    </a>
-  ),
+  a: ({ href, children }) => {
+    const safeHref = sanitizeHref(href)
+    if (!safeHref) return <span>{children}</span>
+    return (
+      <a href={safeHref} target="_blank" rel="noopener noreferrer">
+        {children}
+      </a>
+    )
+  },
   img: ({ alt }) => <span>[Image: {alt ?? 'blocked'}]</span>,
 }
 
@@ -195,6 +207,7 @@ function App() {
           className="settings-toggle"
           onClick={() => setShowSettings(!showSettings)}
           title="Settings"
+          aria-label="Open settings"
         >
           <svg width="18" height="18" viewBox="0 0 20 20" fill="currentColor">
             <path
@@ -287,7 +300,11 @@ function App() {
                 <span className="attachment-icon">PDF</span>
               )}
               <span className="attachment-name">{att.name}</span>
-              <button className="attachment-remove" onClick={() => removeAttachment(i)}>
+              <button
+                className="attachment-remove"
+                onClick={() => removeAttachment(i)}
+                aria-label={`Remove ${att.name}`}
+              >
                 &times;
               </button>
             </div>
@@ -309,6 +326,7 @@ function App() {
           onClick={() => fileInputRef.current?.click()}
           disabled={loading}
           title="Attach file"
+          aria-label="Attach file"
         >
           <svg width="18" height="18" viewBox="0 0 20 20" fill="currentColor">
             <path
