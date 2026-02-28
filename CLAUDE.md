@@ -34,7 +34,7 @@ uvicorn app:app --reload --port 8000
 apps/                    # アプリケーション群（モノレポ）
   notepad/               # React 19 + TypeScript + Vite メモ帳アプリ (localStorage永続化)
   chat/
-    lambda/              # FastAPI + Mangum Lambda バックエンド (OpenAI API)
+    lambda/              # FastAPI + Mangum Lambda バックエンド (OpenAI API + LangChain/LangSmith)
     frontend/            # React 19 + TypeScript + Vite チャットUI
 infrastructure/          # CloudFormation テンプレート + IAMポリシー
   notepad-stack.yml      # S3 + CloudFront OAC
@@ -53,6 +53,7 @@ Browser → CloudFront → /api/* → Lambda Function URL (OAC認証) → OpenAI
                     → /*     → S3 (React SPA)
                                     ↑
                     Lambda → SSM Parameter Store (APIキー取得、lru_cacheで1回のみ)
+                           → LangSmith (トレース送信、オプショナル)
 ```
 
 - FastAPI は `APIRouter(prefix="/api")` でルーティング。CloudFront が `/api/*` パスをそのまま Lambda に転送するため、prefix が必須
@@ -65,7 +66,9 @@ Browser → CloudFront → /api/* → Lambda Function URL (OAC認証) → OpenAI
 - GitHub Actions が CloudFormation スタックをデプロイし、ビルド成果物を S3 に sync、CloudFront キャッシュを無効化
 - CloudFormation の Outputs はワークフロー内で動的に取得される
 - GitHub Actions Variables: `DEPLOY_ROLE_ARN` にIAMロールARNを設定済み
-- **Chat app**: SSM Parameter Store に OpenAI API キーを事前設定が必要（`/chat-app/openai-api-key`、SecureString）
+- **Chat app**: SSM Parameter Store に事前設定が必要:
+  - `/chat-app/openai-api-key`（SecureString、必須）
+  - `/chat-app/langsmith-api-key`（SecureString、オプショナル — 未設定時は LangSmith トレーシング無効）
 - `deploy-role-policy.json` を変更した場合、IAMロールへの手動反映が別途必要（`aws iam put-role-policy` で更新）
 
 ## AWS Configuration
@@ -101,8 +104,8 @@ cd apps/chat/frontend && npm run lint && npx tsc -b
 
 ### トレース
 
-- X-Ray Active トレース（Lambda 自動セグメント生成、コード変更不要）
-- AWS Console > X-Ray > Traces で確認
+- **X-Ray**: Active トレース（Lambda 自動セグメント生成、コード変更不要）。AWS Console > X-Ray > Traces で確認
+- **LangSmith**: LangChain Runnable 経由で OpenAI 呼び出しをトレース。SSM `/chat-app/langsmith-api-key` 設定時のみ有効。プロジェクト名: `aws-smoke-test`
 
 ### アラーム
 

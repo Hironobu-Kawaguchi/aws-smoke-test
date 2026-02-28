@@ -5,7 +5,7 @@ This repository is a small monorepo for AWS deployment smoke tests and sample we
 - `apps/notepad/`: React + TypeScript + Vite notepad frontend.
 - `apps/notepad/src/`: Notepad UI code (`App.tsx`, `main.tsx`, CSS).
 - `apps/chat/frontend/`: React + TypeScript + Vite chat frontend.
-- `apps/chat/lambda/`: FastAPI + Mangum Lambda backend.
+- `apps/chat/lambda/`: FastAPI + Mangum Lambda backend (OpenAI API + LangChain/LangSmith).
 - `infrastructure/`: deployment artifacts (`notepad-stack.yml`, `chat-stack.yml`, `deploy-role-policy.json`).
 - `.github/workflows/`: CI/CD workflows (`aws-smoke-test.yml`, `deploy-notepad.yml`, `deploy-chat.yml`, `lint.yml`).
 
@@ -61,12 +61,13 @@ PRs should include:
 4. Screenshots for UI changes and deployment notes for infrastructure updates.
 
 ## Security & Configuration Tips
-Do not commit secrets or `.env*` files. Use GitHub Actions OIDC and repository variables (for example, `DEPLOY_ROLE_ARN`) for AWS authentication. For chat backend credentials, store the OpenAI key in SSM Parameter Store (`/chat-app/openai-api-key`) as `SecureString`.
+Do not commit secrets or `.env*` files. Use GitHub Actions OIDC and repository variables (for example, `DEPLOY_ROLE_ARN`) for AWS authentication. For chat backend credentials, store API keys in SSM Parameter Store as `SecureString`: `/chat-app/openai-api-key` (required) and `/chat-app/langsmith-api-key` (optional — LangSmith tracing is disabled when absent).
 
 ## Observability
 
 Chat app Lambda has the following monitoring configured (all within AWS Free Tier):
 - **Structured logging**: JSON format via Lambda `LoggingConfig`, 14-day retention. Application logs include OpenAI API latency (`openai_duration_ms`) and token usage.
 - **X-Ray tracing**: Active mode, auto-generated segments for cold start and downstream calls.
+- **LangSmith tracing**: OpenAI calls traced via LangChain Runnable. Enabled only when SSM `/chat-app/langsmith-api-key` is set. Project: `aws-smoke-test`.
 - **CloudWatch Alarms**: Lambda errors (Sum > 0 for 3 consecutive minutes) and p90 duration (> 20s). Both notify via SNS topic `chat-stack-alarms`.
 - **Python dependencies**: Pinned via `requirements.in` → `uv pip compile` → `requirements.txt`.

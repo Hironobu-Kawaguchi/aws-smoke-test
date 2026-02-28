@@ -10,7 +10,7 @@ AWS自動デプロイ用モノレポ。GitHub Actions (OIDC認証) 経由で Clo
 apps/                    # アプリケーション群（モノレポ）
   notepad/               # React 19 + TypeScript + Vite メモ帳アプリ (localStorage永続化)
   chat/
-    lambda/              # FastAPI + Mangum Lambda バックエンド (OpenAI API)
+    lambda/              # FastAPI + Mangum Lambda バックエンド (OpenAI API + LangChain/LangSmith)
     frontend/            # React 19 + TypeScript + Vite チャットUI
 infrastructure/          # CloudFormation テンプレート + IAMポリシー
   notepad-stack.yml      # S3 + CloudFront OAC
@@ -107,6 +107,7 @@ PRには以下を含める:
 Chat app Lambda のモニタリング構成（すべて AWS Free Tier 内）:
 - **構造化ログ**: Lambda `LoggingConfig` による JSON 形式、14日保持。OpenAI API レイテンシ・トークン使用量を記録
 - **X-Ray トレース**: Active モード（コード変更不要）
+- **LangSmith トレース**: LangChain Runnable 経由で OpenAI 呼び出しをトレース。SSM `/chat-app/langsmith-api-key` 設定時のみ有効
 - **CloudWatch Alarms**: Lambda エラー / p90 レイテンシ超過 → SNS メール通知
 - **Python 依存管理**: `requirements.in`（非固定）→ `uv pip compile` → `requirements.txt`（固定）
 
