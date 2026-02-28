@@ -39,6 +39,18 @@ const MODELS = [
   'o4-mini',
 ]
 
+const ALLOWED_IMAGE_TYPES = new Set([
+  'image/png',
+  'image/jpeg',
+  'image/gif',
+  'image/webp',
+])
+const ALLOWED_FILE_TYPES = new Set([
+  ...ALLOWED_IMAGE_TYPES,
+  'application/pdf',
+])
+const FILE_ACCEPT = 'image/png,image/jpeg,image/gif,image/webp,application/pdf'
+
 function getMessageText(content: string | ContentItem[]): string {
   if (typeof content === 'string') return content
   return content
@@ -121,6 +133,10 @@ function App() {
     if (!files) return
     const MAX_FILE_SIZE = 3.5 * 1024 * 1024 // ~3.5 MB (base64 → ~4.7 MB)
     Array.from(files).forEach((file) => {
+      if (!ALLOWED_FILE_TYPES.has(file.type)) {
+        alert(`${file.name}: unsupported file type (${file.type || 'unknown'})`)
+        return
+      }
       if (file.size > MAX_FILE_SIZE) {
         alert(`${file.name} is too large (max 3.5 MB)`)
         return
@@ -154,7 +170,7 @@ function App() {
         items.push({ type: 'input_text', text })
       }
       for (const att of attachments) {
-        if (att.type.startsWith('image/')) {
+        if (ALLOWED_IMAGE_TYPES.has(att.type)) {
           items.push({ type: 'input_image', image_url: att.dataUrl })
         } else {
           items.push({ type: 'input_file', filename: att.name, file_data: att.dataUrl })
@@ -305,7 +321,7 @@ function App() {
         <div className="attachments-preview">
           {attachments.map((att, i) => (
             <div key={i} className="attachment-chip">
-              {att.type.startsWith('image/') ? (
+              {ALLOWED_IMAGE_TYPES.has(att.type) ? (
                 <img src={att.dataUrl} alt={att.name} className="attachment-thumb" />
               ) : (
                 <span className="attachment-icon">{getFileExtLabel(att.name)}</span>
@@ -328,7 +344,7 @@ function App() {
           ref={fileInputRef}
           type="file"
           className="file-input-hidden"
-          accept="image/*,.pdf"
+          accept={FILE_ACCEPT}
           multiple
           onChange={handleFileSelect}
         />

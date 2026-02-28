@@ -41,7 +41,18 @@ ALLOWED_MODELS = {
 
 ALLOWED_CONTENT_TYPES = {"input_text", "input_image", "input_file", "output_text"}
 
-ALLOWED_FILE_MIMES = {"application/pdf", "image/png", "image/jpeg", "image/gif", "image/webp"}
+ALLOWED_FILE_MIMES = {
+    "application/pdf",
+    "image/png",
+    "image/jpeg",
+    "image/gif",
+    "image/webp",
+}
+
+ALLOWED_IMAGE_MIMES = {"image/png", "image/jpeg", "image/gif", "image/webp"}
+
+DATA_URI_PREFIX = "data:"
+DATA_URI_PATTERN = ";base64,"
 
 # Max length of base64-encoded data URI string (~3.75 MB original file size).
 MAX_FILE_DATA_LENGTH = 5 * 1024 * 1024
@@ -69,20 +80,25 @@ class ContentItem(BaseModel):
             if len(v) > MAX_FILE_DATA_LENGTH:
                 msg = "File data exceeds maximum size (5 MB)"
                 raise ValueError(msg)
-            # Validate data URI MIME type (e.g. data:application/pdf;base64,...)
-            if v.startswith("data:"):
-                mime = v.split(";")[0].removeprefix("data:")
-                if mime not in ALLOWED_FILE_MIMES:
-                    msg = f"Unsupported file MIME type: {mime}"
-                    raise ValueError(msg)
+            if DATA_URI_PATTERN not in v or not v.startswith(DATA_URI_PREFIX):
+                msg = "file_data must be a data:<mime>;base64,... URI"
+                raise ValueError(msg)
+            mime = v.split(";")[0].removeprefix(DATA_URI_PREFIX)
+            if mime not in ALLOWED_FILE_MIMES:
+                msg = f"Unsupported file MIME type: {mime}"
+                raise ValueError(msg)
         return v
 
     @field_validator("image_url")
     @classmethod
     def validate_image_url(cls, v: str | None) -> str | None:
         if v is not None:
-            if not v.startswith("data:image/"):
-                msg = "image_url must be a data:image/* URI"
+            if DATA_URI_PATTERN not in v or not v.startswith(DATA_URI_PREFIX):
+                msg = "image_url must be a data:<mime>;base64,... URI"
+                raise ValueError(msg)
+            mime = v.split(";")[0].removeprefix(DATA_URI_PREFIX)
+            if mime not in ALLOWED_IMAGE_MIMES:
+                msg = f"Unsupported image MIME type: {mime}"
                 raise ValueError(msg)
             if len(v) > MAX_FILE_DATA_LENGTH:
                 msg = "image_url data exceeds maximum size (5 MB)"
