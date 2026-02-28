@@ -18,6 +18,35 @@
   margin: 0;
 }
 
+.chat-settings {
+  display: grid;
+  gap: 0.5rem;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid #333;
+}
+
+.chat-settings label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.85rem;
+}
+
+.chat-settings input,
+.chat-settings textarea {
+  padding: 0.4rem 0.6rem;
+  border: 1px solid #444;
+  border-radius: 6px;
+  background: inherit;
+  color: inherit;
+  font: inherit;
+}
+
+.chat-settings .system-prompt {
+  grid-column: 1 / -1;
+}
+
 .chat-messages {
   flex: 1;
   overflow-y: auto;
@@ -57,6 +86,20 @@
   word-break: break-word;
 }
 
+.markdown-body p {
+  margin: 0.4rem 0;
+}
+
+.markdown-body code {
+  background: rgba(127, 127, 127, 0.2);
+  padding: 0.1rem 0.3rem;
+  border-radius: 4px;
+}
+
+.markdown-body pre {
+  overflow-x: auto;
+}
+
 .chat-message-content.loading {
   opacity: 0.6;
   font-style: italic;
@@ -87,8 +130,35 @@
   border-color: #646cff;
 }
 
+.chat-actions {
+  min-width: 260px;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.attachment-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  font-size: 0.8rem;
+  opacity: 0.9;
+}
+
+.attachment-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.attachment-list.pending button {
+  padding: 0 0.35rem;
+}
+
 @media (prefers-color-scheme: light) {
-  .chat-header {
+  .chat-header,
+  .chat-settings {
     border-bottom-color: #ddd;
   }
   .chat-message.assistant {
@@ -98,7 +168,9 @@
   .chat-input-area {
     border-top-color: #ddd;
   }
-  .chat-input {
+  .chat-input,
+  .chat-settings input,
+  .chat-settings textarea {
     border-color: #ccc;
   }
 }
