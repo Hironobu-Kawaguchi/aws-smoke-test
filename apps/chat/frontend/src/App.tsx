@@ -1,3 +1,4 @@
+import type { Components } from 'react-markdown'
 import { useState, useRef, useEffect } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
@@ -51,6 +52,34 @@ function getMessageAttachments(content: string | ContentItem[]): ContentItem[] {
   return content.filter(
     (item) => item.type === 'input_image' || item.type === 'input_file',
   )
+}
+
+/** Sanitize markdown: open links in new tab, block external images. */
+const markdownComponents: Components = {
+  a: ({ href, children }) => (
+    <a href={href} target="_blank" rel="noopener noreferrer">
+      {children}
+    </a>
+  ),
+  img: ({ alt }) => <span>[Image: {alt ?? 'blocked'}]</span>,
+}
+
+/** Strip base64 file data from older messages to reduce request payload. */
+function stripFileData(msgs: Message[]): Message[] {
+  return msgs.map((msg, i) => {
+    if (i >= msgs.length - 1) return msg
+    if (typeof msg.content === 'string') return msg
+    const stripped = msg.content.map((item) => {
+      if (item.type === 'input_image') {
+        return { type: 'input_text', text: '[Image]' }
+      }
+      if (item.type === 'input_file') {
+        return { type: 'input_text', text: `[File: ${item.filename ?? 'unknown'}]` }
+      }
+      return item
+    })
+    return { ...msg, content: stripped }
+  })
 }
 
 function App() {
@@ -120,7 +149,7 @@ function App() {
 
     try {
       const body = JSON.stringify({
-        messages: updatedMessages,
+        messages: stripFileData(updatedMessages),
         model,
         ...(instructions ? { instructions } : {}),
       })
@@ -214,7 +243,10 @@ function App() {
             </div>
             <div className="chat-message-content">
               {msg.role === 'assistant' ? (
-                <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                <ReactMarkdown
+                  remarkPlugins={[remarkGfm]}
+                  components={markdownComponents}
+                >
                   {getMessageText(msg.content)}
                 </ReactMarkdown>
               ) : (

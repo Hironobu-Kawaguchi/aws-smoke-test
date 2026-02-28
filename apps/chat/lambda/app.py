@@ -9,7 +9,7 @@ import boto3
 from fastapi import APIRouter, FastAPI, HTTPException
 from mangum import Mangum
 from openai import OpenAI
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -30,12 +30,43 @@ def get_openai_client() -> OpenAI:
     return OpenAI(api_key=api_key)
 
 
+ALLOWED_MODELS = {
+    "gpt-4o-mini",
+    "gpt-4o",
+    "gpt-4.1-nano",
+    "gpt-4.1-mini",
+    "gpt-4.1",
+    "o4-mini",
+}
+
+ALLOWED_CONTENT_TYPES = {"input_text", "input_image", "input_file", "output_text"}
+
+# 5 MB per file (base64 ≈ 4/3× original, so ~3.75 MB original)
+MAX_FILE_DATA_LENGTH = 5 * 1024 * 1024
+
+
 class ContentItem(BaseModel):
     type: str
     text: str | None = None
     image_url: str | None = None
     filename: str | None = None
     file_data: str | None = None
+
+    @field_validator("type")
+    @classmethod
+    def validate_type(cls, v: str) -> str:
+        if v not in ALLOWED_CONTENT_TYPES:
+            msg = f"Unsupported content type: {v}"
+            raise ValueError(msg)
+        return v
+
+    @field_validator("file_data")
+    @classmethod
+    def validate_file_data(cls, v: str | None) -> str | None:
+        if v is not None and len(v) > MAX_FILE_DATA_LENGTH:
+            msg = "File data exceeds maximum size (5 MB)"
+            raise ValueError(msg)
+        return v
 
 
 class Message(BaseModel):
@@ -47,6 +78,14 @@ class ChatRequest(BaseModel):
     messages: list[Message]
     model: str = "gpt-4o-mini"
     instructions: str | None = None
+
+    @field_validator("model")
+    @classmethod
+    def validate_model(cls, v: str) -> str:
+        if v not in ALLOWED_MODELS:
+            msg = f"Model not allowed: {v}. Allowed: {', '.join(sorted(ALLOWED_MODELS))}"
+            raise ValueError(msg)
+        return v
 
 
 class ChatResponse(BaseModel):
