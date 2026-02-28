@@ -18,6 +18,29 @@
   margin: 0;
 }
 
+.chat-settings {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 0.5rem;
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid #333;
+}
+
+.chat-settings label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.8rem;
+}
+
+.chat-settings input {
+  border: 1px solid #444;
+  border-radius: 6px;
+  background: inherit;
+  color: inherit;
+  padding: 0.4rem 0.5rem;
+}
+
 .chat-messages {
   flex: 1;
   overflow-y: auto;
@@ -57,6 +80,26 @@
   word-break: break-word;
 }
 
+.chat-message-content.markdown p {
+  margin: 0 0 0.4rem;
+}
+
+.chat-message-content.markdown p:last-child {
+  margin-bottom: 0;
+}
+
+.chat-message-content.markdown pre {
+  overflow-x: auto;
+  padding: 0.5rem;
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.25);
+}
+
+.attachment-list {
+  margin: 0.5rem 0 0;
+  padding-left: 1rem;
+}
+
 .chat-message-content.loading {
   opacity: 0.6;
   font-style: italic;
@@ -83,22 +126,64 @@
   outline: none;
 }
 
+.chat-input-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.file-picker {
+  border: 1px solid #555;
+  border-radius: 6px;
+  padding: 0.4rem 0.6rem;
+  text-align: center;
+  cursor: pointer;
+  font-size: 0.85rem;
+}
+
+.file-picker input {
+  display: none;
+}
+
+.pending-attachments {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  padding: 0 1rem 0.75rem;
+}
+
+.pending-attachments button {
+  border: 1px solid #444;
+  border-radius: 999px;
+  background: transparent;
+  color: inherit;
+  padding: 0.2rem 0.6rem;
+  cursor: pointer;
+}
+
 .chat-input:focus {
   border-color: #646cff;
 }
 
 @media (prefers-color-scheme: light) {
-  .chat-header {
+  .chat-header,
+  .chat-settings {
     border-bottom-color: #ddd;
   }
+
   .chat-message.assistant {
     background-color: #f0f0f0;
     color: #213547;
   }
+
   .chat-input-area {
     border-top-color: #ddd;
   }
-  .chat-input {
+
+  .chat-input,
+  .chat-settings input,
+  .pending-attachments button,
+  .file-picker {
     border-color: #ccc;
   }
 }
