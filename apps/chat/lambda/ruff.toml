@@ -2,4 +2,46 @@ target-version = "py313"
 line-length = 99
 
 [lint]
-select = ["E", "F", "I", "UP", "B", "SIM"]
+select = [
+  # 基本
+  "E",    # pycodestyle errors
+  "F",    # pyflakes
+  "I",    # isort
+  "UP",   # pyupgrade
+  "B",    # flake8-bugbear
+  "SIM",  # flake8-simplify
+  # セキュリティ
+  "S",    # flake8-bandit
+  # コード品質
+  "N",    # pep8-naming
+  "A",    # flake8-builtins (組み込み名の隠蔽検出)
+  "C4",   # flake8-comprehensions
+  "PIE",  # flake8-pie
+  "RET",  # flake8-return
+  "RSE",  # flake8-raise
+  "ARG",  # flake8-unused-arguments
+  "ISC",  # flake8-implicit-str-concat
+  "EM",   # flake8-errmsg (例外メッセージのベストプラクティス)
+  "FLY",  # flynt (f-string変換)
+  "PERF", # Perflint (パフォーマンス)
+  "FURB", # refurb (モダン化)
+  "RUF",  # Ruff独自ルール
+  # ロギング
+  "LOG",  # flake8-logging
+  "G",    # flake8-logging-format
+  "T20",  # flake8-print (Lambda では logger を使うべき)
+  # 例外処理
+  "TRY",  # tryceratops
+  # 型チェック最適化
+  "TC",   # flake8-type-checking (TYPE_CHECKING imports)
+  # Pylint サブセット
+  "PLC",  # Pylint convention
+  "PLE",  # Pylint error
+  "PLW",  # Pylint warning
+]
+ignore = [
+  "ISC001",  # ruff format と競合
+  "TRY003",  # HTTPException 等で長いメッセージは許容
+  "EM101",   # HTTPException detail に文字列リテラル直接指定は許容
+  "EM102",   # HTTPException detail に f-string 直接指定は許容
+]

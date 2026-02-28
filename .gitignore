@@ -27,6 +27,7 @@ Thumbs.db
 __pycache__/
 *.py[cod]
 .ruff_cache/
+.venv/
 
 # Logs
 *.log

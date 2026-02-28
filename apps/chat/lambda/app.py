@@ -115,8 +115,10 @@ def _parse_data_url(data_url: str) -> tuple[str, str]:
 def get_openai_client() -> OpenAI:
     """Retrieve OpenAI API key from SSM Parameter Store and create client."""
     ssm = boto3.client("ssm", region_name=AWS_REGION)
-    response = ssm.get_parameter(Name=SSM_PARAMETER_NAME, WithDecryption=True)
-    api_key = response["Parameter"]["Value"]
+    result = ssm.get_parameter(Name=SSM_PARAMETER_NAME, WithDecryption=True)
+    api_key = result["Parameter"].get("Value")
+    if not api_key:
+        raise RuntimeError(f"SSM parameter {SSM_PARAMETER_NAME} has no value")
     return OpenAI(api_key=api_key)
 
 
@@ -236,10 +238,8 @@ class ChatRequest(BaseModel):
 
 
 class ChatResponse(BaseModel):
-    model_config = ConfigDict(populate_by_name=True)
-
     message: str
-    response_id: str = Field(alias="responseId")
+    response_id: str = Field(serialization_alias="responseId")
 
 
 def _build_content_parts(message: Message) -> list[dict[str, Any]]:

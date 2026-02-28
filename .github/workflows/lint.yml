@@ -54,3 +54,22 @@ jobs:
       - name: Ruff format check
         working-directory: apps/chat/lambda
         run: ruff format --check --diff .
+
+  python-typecheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Install dependencies and pyright
+        working-directory: apps/chat/lambda
+        run: |
+          python -m venv .venv
+          .venv/bin/pip install -r requirements.txt boto3-stubs[ssm] pyright
+
+      - name: Pyright type check
+        working-directory: apps/chat/lambda
+        run: .venv/bin/pyright .
