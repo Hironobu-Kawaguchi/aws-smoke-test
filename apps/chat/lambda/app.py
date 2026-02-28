@@ -240,6 +240,9 @@ class ChatRequest(BaseModel):
 class ChatResponse(BaseModel):
     message: str
     response_id: str = Field(serialization_alias="responseId")
+    input_tokens: int | None = Field(default=None, serialization_alias="inputTokens")
+    output_tokens: int | None = Field(default=None, serialization_alias="outputTokens")
+    duration_seconds: float = Field(serialization_alias="durationSeconds")
 
 
 def _build_content_parts(message: Message) -> list[dict[str, Any]]:
@@ -334,7 +337,13 @@ def chat(request: ChatRequest) -> ChatResponse:
                 "response_id": response.id,
             },
         )
-        return ChatResponse(message=content, response_id=response.id)
+        return ChatResponse(
+            message=content,
+            response_id=response.id,
+            input_tokens=response.usage.input_tokens if response.usage else None,
+            output_tokens=response.usage.output_tokens if response.usage else None,
+            duration_seconds=round(duration_ms / 1000, 2),
+        )
     except Exception as e:
         logger.exception("OpenAI API call failed")
         raise HTTPException(status_code=502, detail=str(e)) from e

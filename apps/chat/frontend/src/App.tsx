@@ -282,6 +282,13 @@ interface Message {
   role: MessageRole
   content: string
   attachments?: AttachmentMeta[]
+  metrics?: ResponseMetrics
+}
+
+interface ResponseMetrics {
+  inputTokens?: number
+  outputTokens?: number
+  durationSeconds?: number
 }
 
 interface RequestMessage {
@@ -306,6 +313,9 @@ interface ChatSettings {
 interface ChatApiResponse {
   message: string
   responseId?: string
+  inputTokens?: number
+  outputTokens?: number
+  durationSeconds?: number
 }
 
 const DEFAULT_SETTINGS: ChatSettings = {
@@ -576,7 +586,18 @@ function App() {
 
       const data = (await response.json()) as ChatApiResponse
       setPreviousResponseId(typeof data.responseId === 'string' ? data.responseId : null)
-      setMessages([...updatedMessages, { role: 'assistant', content: data.message }])
+      setMessages([
+        ...updatedMessages,
+        {
+          role: 'assistant',
+          content: data.message,
+          metrics: {
+            inputTokens: data.inputTokens,
+            outputTokens: data.outputTokens,
+            durationSeconds: data.durationSeconds,
+          },
+        },
+      ])
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Unknown error'
       setMessages([
@@ -720,6 +741,13 @@ function App() {
           <div key={i} className={`chat-message ${msg.role}`}>
             <div className="chat-message-role">{msg.role === 'user' ? 'You' : 'AI'}</div>
             <div className="chat-message-content markdown">{renderMarkdown(msg.content)}</div>
+            {msg.role === 'assistant' && msg.metrics && (
+              <div className="chat-message-metrics">
+                <span>入力: {msg.metrics.inputTokens?.toLocaleString() ?? '-'} tokens</span>
+                <span>出力: {msg.metrics.outputTokens?.toLocaleString() ?? '-'} tokens</span>
+                <span>応答時間: {msg.metrics.durationSeconds?.toFixed(2) ?? '-'}秒</span>
+              </div>
+            )}
             {msg.attachments && msg.attachments.length > 0 && (
               <ul className="attachment-list">
                 {msg.attachments.map((attachment, index) => (
