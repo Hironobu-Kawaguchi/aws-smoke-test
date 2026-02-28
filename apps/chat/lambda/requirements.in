@@ -1,5 +1,6 @@
 fastapi
 langchain
+langchain-aws
 langchain-core
 langsmith
 mangum

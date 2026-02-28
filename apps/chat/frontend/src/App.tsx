@@ -33,6 +33,8 @@ interface ModelMetadata {
   supportsReasoningEffort: boolean
   reasoningEffortOptions: ReasoningEffort[]
   defaultReasoningEffort: ReasoningEffort | null
+  supportsWebSearch: boolean
+  supportsPreviousResponse: boolean
 }
 
 const FALLBACK_MODELS: ModelMetadata[] = [
@@ -42,6 +44,8 @@ const FALLBACK_MODELS: ModelMetadata[] = [
     supportsReasoningEffort: false,
     reasoningEffortOptions: [],
     defaultReasoningEffort: null,
+    supportsWebSearch: true,
+    supportsPreviousResponse: true,
   },
   {
     id: 'gpt-4.1-mini',
@@ -49,6 +53,8 @@ const FALLBACK_MODELS: ModelMetadata[] = [
     supportsReasoningEffort: false,
     reasoningEffortOptions: [],
     defaultReasoningEffort: null,
+    supportsWebSearch: true,
+    supportsPreviousResponse: true,
   },
   {
     id: 'gpt-5',
@@ -56,6 +62,8 @@ const FALLBACK_MODELS: ModelMetadata[] = [
     supportsReasoningEffort: true,
     reasoningEffortOptions: ['low', 'medium', 'high'],
     defaultReasoningEffort: 'low',
+    supportsWebSearch: true,
+    supportsPreviousResponse: true,
   },
   {
     id: 'gpt-5-mini',
@@ -63,6 +71,8 @@ const FALLBACK_MODELS: ModelMetadata[] = [
     supportsReasoningEffort: true,
     reasoningEffortOptions: ['low', 'medium', 'high'],
     defaultReasoningEffort: 'low',
+    supportsWebSearch: true,
+    supportsPreviousResponse: true,
   },
   {
     id: 'gpt-5-nano',
@@ -70,6 +80,8 @@ const FALLBACK_MODELS: ModelMetadata[] = [
     supportsReasoningEffort: true,
     reasoningEffortOptions: ['low', 'medium', 'high'],
     defaultReasoningEffort: 'low',
+    supportsWebSearch: true,
+    supportsPreviousResponse: true,
   },
   {
     id: 'gpt-5-chat-latest',
@@ -77,6 +89,8 @@ const FALLBACK_MODELS: ModelMetadata[] = [
     supportsReasoningEffort: true,
     reasoningEffortOptions: ['low', 'medium', 'high'],
     defaultReasoningEffort: 'low',
+    supportsWebSearch: true,
+    supportsPreviousResponse: true,
   },
   {
     id: 'gpt-5.2',
@@ -84,6 +98,8 @@ const FALLBACK_MODELS: ModelMetadata[] = [
     supportsReasoningEffort: true,
     reasoningEffortOptions: ['low', 'medium', 'high'],
     defaultReasoningEffort: 'low',
+    supportsWebSearch: true,
+    supportsPreviousResponse: true,
   },
   {
     id: 'gpt-5.2-pro',
@@ -91,6 +107,8 @@ const FALLBACK_MODELS: ModelMetadata[] = [
     supportsReasoningEffort: true,
     reasoningEffortOptions: ['low', 'medium', 'high'],
     defaultReasoningEffort: 'low',
+    supportsWebSearch: true,
+    supportsPreviousResponse: true,
   },
   {
     id: 'o4-mini',
@@ -98,6 +116,8 @@ const FALLBACK_MODELS: ModelMetadata[] = [
     supportsReasoningEffort: true,
     reasoningEffortOptions: ['low', 'medium', 'high'],
     defaultReasoningEffort: 'low',
+    supportsWebSearch: true,
+    supportsPreviousResponse: true,
   },
   {
     id: 'o3-deep-research',
@@ -105,6 +125,8 @@ const FALLBACK_MODELS: ModelMetadata[] = [
     supportsReasoningEffort: true,
     reasoningEffortOptions: ['low', 'medium', 'high'],
     defaultReasoningEffort: 'low',
+    supportsWebSearch: true,
+    supportsPreviousResponse: true,
   },
   {
     id: 'o4-mini-deep-research',
@@ -112,6 +134,35 @@ const FALLBACK_MODELS: ModelMetadata[] = [
     supportsReasoningEffort: true,
     reasoningEffortOptions: ['low', 'medium', 'high'],
     defaultReasoningEffort: 'low',
+    supportsWebSearch: true,
+    supportsPreviousResponse: true,
+  },
+  {
+    id: 'global.anthropic.claude-opus-4-6-v1',
+    supportsTemperature: true,
+    supportsReasoningEffort: false,
+    reasoningEffortOptions: [],
+    defaultReasoningEffort: null,
+    supportsWebSearch: false,
+    supportsPreviousResponse: false,
+  },
+  {
+    id: 'global.anthropic.claude-sonnet-4-6',
+    supportsTemperature: true,
+    supportsReasoningEffort: false,
+    reasoningEffortOptions: [],
+    defaultReasoningEffort: null,
+    supportsWebSearch: false,
+    supportsPreviousResponse: false,
+  },
+  {
+    id: 'global.anthropic.claude-haiku-4-5-20251001-v1:0',
+    supportsTemperature: true,
+    supportsReasoningEffort: false,
+    reasoningEffortOptions: [],
+    defaultReasoningEffort: null,
+    supportsWebSearch: false,
+    supportsPreviousResponse: false,
   },
 ]
 const ALLOWED_ATTACHMENT_MIME_TYPES = new Set([
@@ -568,7 +619,10 @@ function App() {
           ? settings.reasoningEffort
           : undefined,
         maxOutputTokens: settings.maxOutputTokens,
-        previousResponseId: previousResponseId ?? undefined,
+        previousResponseId:
+          activeModel?.supportsPreviousResponse !== false
+            ? (previousResponseId ?? undefined)
+            : undefined,
       })
       const bodyHash = await sha256Hex(body)
       const response = await fetch('/api/chat', {
@@ -653,20 +707,22 @@ function App() {
             disabled={loading}
           />
         </label>
-        <label className="chat-toggle">
-          Web Search
-          <input
-            type="checkbox"
-            checked={settings.webSearchEnabled}
-            onChange={(e) =>
-              setSettings((current) => ({
-                ...current,
-                webSearchEnabled: e.target.checked,
-              }))
-            }
-            disabled={loading}
-          />
-        </label>
+        {activeModel?.supportsWebSearch !== false && (
+          <label className="chat-toggle">
+            Web Search
+            <input
+              type="checkbox"
+              checked={settings.webSearchEnabled}
+              onChange={(e) =>
+                setSettings((current) => ({
+                  ...current,
+                  webSearchEnabled: e.target.checked,
+                }))
+              }
+              disabled={loading}
+            />
+          </label>
+        )}
         {activeModel?.supportsTemperature && (
           <label>
             Temperature
