@@ -19,6 +19,7 @@ infrastructure/          # CloudFormation テンプレート + IAMポリシー
 .github/workflows/
   deploy-notepad.yml     # main push → CFnデプロイ → ビルド → S3 sync → CF無効化
   deploy-chat.yml        # main push → CFn → Lambda更新 → ビルド → S3 sync → CF無効化
+  lint.yml               # リント・型チェック (TypeScript + Python)
   aws-smoke-test.yml     # OIDC認証の疎通確認（手動実行）
 ```
 
@@ -45,6 +46,13 @@ npm run lint
 # Chat app - Lambda (ローカル開発)
 cd apps/chat/lambda
 uvicorn app:app --reload --port 8000
+
+# Python リント
+uvx ruff check apps/chat/lambda/
+uvx ruff format --check apps/chat/lambda/
+
+# Python 依存更新
+cd apps/chat/lambda && uv pip compile requirements.in -o requirements.txt
 ```
 
 ## Coding Style
@@ -53,15 +61,16 @@ uvicorn app:app --reload --port 8000
 - **React コンポーネント**: `PascalCase` (例: `NotepadPanel.tsx`)
 - **関数・変数・hooks**: `camelCase`
 - **定数**: `UPPER_SNAKE_CASE` (モジュールレベルの不変値)
-- **Python (Lambda)**: 標準的な PEP 8 スタイル
-- リンティングは各アプリの `eslint.config.js` で定義。push 前に lint-clean にすること
+- **Python (Lambda)**: ruff (`apps/chat/lambda/ruff.toml`) で E/F/I/UP/B/SIM ルール適用
+- リンティングは各フロントエンドの `eslint.config.js` と Python の `ruff.toml` で定義。push 前に lint-clean にすること
+- CI (`.github/workflows/lint.yml`) が PR/push 時に全チェックを自動実行
 
 ## Testing
 
 現時点で専用テストフレームワークは未導入。最低限の品質ゲート:
 
-1. `npm run lint`
-2. `npm run build`
+1. `npm run lint` + `npm run build`（各フロントエンド）
+2. `uvx ruff check` + `uvx ruff format --check`（Python）
 3. `npm run dev` での手動スモークテスト
 
 テストを追加する場合は `src/` 配下に `*.test.ts` / `*.test.tsx` で配置する。
@@ -92,6 +101,14 @@ PRには以下を含める:
 - 新しいアプリは `apps/` 配下に追加する
 - インフラテンプレートは `infrastructure/` 配下に配置する
 - 新アプリ追加時は `deploy-role-policy.json` にスタック名パターンの権限を追加する
+
+## Observability
+
+Chat app Lambda のモニタリング構成（すべて AWS Free Tier 内）:
+- **構造化ログ**: Lambda `LoggingConfig` による JSON 形式、14日保持。OpenAI API レイテンシ・トークン使用量を記録
+- **X-Ray トレース**: Active モード（コード変更不要）
+- **CloudWatch Alarms**: Lambda エラー / p90 レイテンシ超過 → SNS メール通知
+- **Python 依存管理**: `requirements.in`（非固定）→ `uv pip compile` → `requirements.txt`（固定）
 
 ## Language
 

@@ -10,13 +10,14 @@ AWS 環境への自動デプロイを行うモノレポ。
   aws-smoke-test.yml      # OIDC 認証の疎通確認
   deploy-notepad.yml      # notepad のデプロイ (CFn + S3 + CloudFront)
   deploy-chat.yml         # chat のデプロイ (CFn + Lambda + S3 + CloudFront)
+  lint.yml                # リント・型チェック (TypeScript + Python)
 apps/notepad/             # React + TypeScript + Vite メモ帳アプリ
 apps/chat/
   frontend/               # React + TypeScript + Vite チャット UI
   lambda/                 # FastAPI + Mangum Lambda API
 infrastructure/
   notepad-stack.yml        # CloudFormation テンプレート (S3 + CloudFront)
-  chat-stack.yml           # CloudFormation テンプレート (Lambda + S3 + CloudFront)
+  chat-stack.yml           # CloudFormation テンプレート (Lambda + S3 + CloudFront + Monitoring)
   deploy-role-policy.json  # GitHub Actions ロール用 IAM ポリシー
 ```
 
@@ -50,7 +51,25 @@ aws ssm put-parameter \
   --region ap-northeast-1
 ```
 
-### 4. デプロイ
+### 4. SNS アラーム通知の購読（任意）
+
+デプロイ後、Lambda エラー・高レイテンシのメール通知を受け取る場合:
+
+```zsh
+# AlarmTopicArn を取得
+aws cloudformation describe-stacks --stack-name chat-stack \
+  --query 'Stacks[0].Outputs[?OutputKey==`AlarmTopicArn`].OutputValue' --output text
+
+# メール購読
+aws sns subscribe \
+  --topic-arn <上記の ARN> \
+  --protocol email \
+  --notification-endpoint your@email.com
+```
+
+確認メールが届くので「Confirm subscription」リンクをクリックする。
+
+### 5. デプロイ
 
 `main` ブランチに push すると、変更パスに応じて自動デプロイされます。
 - `deploy-notepad.yml`: `apps/notepad/**` または `infrastructure/notepad-stack.yml` の変更時
@@ -92,3 +111,33 @@ uvicorn app:app --reload --port 8000
 ```
 
 ローカルで `/api/chat` を使う場合、AWS 認証情報と SSM パラメータ `/chat-app/openai-api-key` が必要です。
+
+## リンティング
+
+PR / main push 時に CI (`.github/workflows/lint.yml`) が自動実行されます。ローカルで事前チェック:
+
+```zsh
+# TypeScript (各フロントエンド)
+cd apps/notepad && npm run lint && npx tsc -b
+cd apps/chat/frontend && npm run lint && npx tsc -b
+
+# Python (ruff)
+uvx ruff check apps/chat/lambda/
+uvx ruff format --check apps/chat/lambda/
+```
+
+Python 依存の更新手順:
+
+```zsh
+# requirements.in を編集後
+cd apps/chat/lambda
+uv pip compile requirements.in -o requirements.txt
+```
+
+## モニタリング
+
+Chat app の Lambda には以下のオブザーバビリティが設定されています:
+
+- **構造化ログ**: JSON 形式（CloudWatch Logs、14日保持）
+- **X-Ray トレース**: コールドスタート・SSM/OpenAI API レイテンシの可視化
+- **CloudWatch Alarms**: Lambda エラー検出 / p90 レイテンシ超過 → SNS メール通知
