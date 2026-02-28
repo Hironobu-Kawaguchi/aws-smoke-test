@@ -26,7 +26,7 @@ IMAGE_ATTACHMENT_MIME_TYPES = {"image/png", "image/jpeg", "image/webp", "image/g
 PDF_ATTACHMENT_MIME_TYPE = "application/pdf"
 ALLOWED_ATTACHMENT_MIME_TYPES = IMAGE_ATTACHMENT_MIME_TYPES | {PDF_ATTACHMENT_MIME_TYPE}
 MAX_ATTACHMENT_BASE64_LENGTH = 2_800_000
-MAX_TOTAL_ATTACHMENT_BASE64_LENGTH = 5_600_000
+MAX_REQUEST_ATTACHMENT_BASE64_LENGTH = 5_600_000
 DATA_URL_PATTERN = re.compile(r"^data:(?P<mime>[-.\w+/]+);base64,(?P<payload>[A-Za-z0-9+/=]+)$")
 
 
@@ -86,14 +86,6 @@ class Message(BaseModel):
     def validate_attachments(self) -> "Message":
         if self.attachments and self.role != "user":
             raise ValueError("Attachments are only supported for user messages")
-
-        total_payload_size = sum(attachment.payload_size() for attachment in self.attachments)
-        if total_payload_size > MAX_TOTAL_ATTACHMENT_BASE64_LENGTH:
-            raise ValueError(
-                "Total attachment payload is too large: "
-                f"limit is {MAX_TOTAL_ATTACHMENT_BASE64_LENGTH} base64 chars"
-            )
-
         return self
 
 
@@ -105,6 +97,7 @@ class ChatRequest(BaseModel):
     system_prompt: str | None = Field(default=None, alias="systemPrompt")
     temperature: float = Field(default=0.7, ge=0, le=2)
     max_output_tokens: int = Field(default=1000, alias="maxOutputTokens", ge=1, le=4096)
+    previous_response_id: str | None = Field(default=None, alias="previousResponseId")
 
     @field_validator("model")
     @classmethod
@@ -122,16 +115,19 @@ class ChatRequest(BaseModel):
             for message in self.messages
             for attachment in message.attachments
         )
-        if total_payload_size > MAX_TOTAL_ATTACHMENT_BASE64_LENGTH:
+        if total_payload_size > MAX_REQUEST_ATTACHMENT_BASE64_LENGTH:
             raise ValueError(
                 "Total request attachment payload is too large: "
-                f"limit is {MAX_TOTAL_ATTACHMENT_BASE64_LENGTH} base64 chars"
+                f"limit is {MAX_REQUEST_ATTACHMENT_BASE64_LENGTH} base64 chars"
             )
         return self
 
 
 class ChatResponse(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
     message: str
+    response_id: str = Field(alias="responseId")
 
 
 def _build_content_parts(message: Message) -> list[dict[str, Any]]:
@@ -177,13 +173,17 @@ def chat(request: ChatRequest) -> ChatResponse:
     client = get_openai_client()
     try:
         start = time.time()
-        response = client.responses.create(
-            model=request.model,
-            instructions=request.system_prompt or None,
-            input=input_messages,
-            temperature=request.temperature,
-            max_output_tokens=request.max_output_tokens,
-        )
+        request_params: dict[str, Any] = {
+            "model": request.model,
+            "instructions": request.system_prompt or None,
+            "input": input_messages,
+            "temperature": request.temperature,
+            "max_output_tokens": request.max_output_tokens,
+        }
+        if request.previous_response_id:
+            request_params["previous_response_id"] = request.previous_response_id
+
+        response = client.responses.create(**request_params)
         duration_ms = int((time.time() - start) * 1000)
         content = response.output_text or ""
 
@@ -197,9 +197,10 @@ def chat(request: ChatRequest) -> ChatResponse:
                     response.usage.output_tokens if response.usage else None
                 ),
                 "response_length": len(content),
+                "response_id": response.id,
             },
         )
-        return ChatResponse(message=content)
+        return ChatResponse(message=content, response_id=response.id)
     except Exception as e:
         logger.exception("OpenAI API call failed")
         raise HTTPException(status_code=502, detail=str(e)) from e

@@ -65,7 +65,12 @@ function renderInlineMarkdown(text: string): ReactNode[] {
       const linkMatch = token.match(/^\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)$/)
       if (linkMatch) {
         nodes.push(
-          <a key={`${match.index}-link`} href={linkMatch[2]} target="_blank" rel="noreferrer">
+          <a
+            key={`${match.index}-link`}
+            href={linkMatch[2]}
+            target="_blank"
+            rel="noreferrer noopener"
+          >
             {linkMatch[1]}
           </a>,
         )
@@ -208,6 +213,11 @@ interface ChatSettings {
   maxOutputTokens: number
 }
 
+interface ChatApiResponse {
+  message: string
+  responseId?: string
+}
+
 const DEFAULT_SETTINGS: ChatSettings = {
   model: 'gpt-4o-mini',
   systemPrompt: '',
@@ -243,6 +253,7 @@ function App() {
   const [attachmentError, setAttachmentError] = useState<string | null>(null)
   const [isLoadingAttachments, setIsLoadingAttachments] = useState(false)
   const [loading, setLoading] = useState(false)
+  const [previousResponseId, setPreviousResponseId] = useState<string | null>(null)
   const [settings, setSettings] = useState<ChatSettings>(DEFAULT_SETTINGS)
   const loadingAttachmentsRef = useRef(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
@@ -367,20 +378,11 @@ function App() {
       attachments: messageAttachments.length > 0 ? messageAttachments : undefined,
     }
     const updatedMessages = [...messages, userMessage]
-    const requestMessages: RequestMessage[] = updatedMessages.map((message, index) => {
-      const requestMessage: RequestMessage = {
-        role: message.role,
-        content: message.content,
-      }
-      if (
-        index === updatedMessages.length - 1 &&
-        message.role === 'user' &&
-        requestAttachments.length > 0
-      ) {
-        requestMessage.attachments = requestAttachments
-      }
-      return requestMessage
-    })
+    const requestMessage: RequestMessage = {
+      role: 'user',
+      content: text,
+      attachments: requestAttachments.length > 0 ? requestAttachments : undefined,
+    }
 
     setMessages(updatedMessages)
     setInput('')
@@ -390,11 +392,12 @@ function App() {
 
     try {
       const body = JSON.stringify({
-        messages: requestMessages,
+        messages: [requestMessage],
         model: settings.model,
         systemPrompt: settings.systemPrompt,
         temperature: settings.temperature,
         maxOutputTokens: settings.maxOutputTokens,
+        previousResponseId: previousResponseId ?? undefined,
       })
       const bodyHash = await sha256Hex(body)
       const response = await fetch('/api/chat', {
@@ -410,7 +413,8 @@ function App() {
         throw new Error(`HTTP ${response.status}`)
       }
 
-      const data = await response.json()
+      const data = (await response.json()) as ChatApiResponse
+      setPreviousResponseId(typeof data.responseId === 'string' ? data.responseId : null)
       setMessages([...updatedMessages, { role: 'assistant', content: data.message }])
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Unknown error'
@@ -424,7 +428,7 @@ function App() {
   }
 
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.nativeEvent.isComposing || e.keyCode === 229) return
+    if (e.nativeEvent.isComposing || e.key === 'Process') return
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
       sendMessage()
