@@ -66,16 +66,23 @@ jobs:
         working-directory: apps/chat/lambda
         run: |
           pip install -t package -r requirements.txt
+          # Exclude packages already in the Lambda Python runtime
+          rm -rf package/boto3 package/botocore package/s3transfer package/jmespath
+          rm -rf package/boto3-*.dist-info package/botocore-*.dist-info package/s3transfer-*.dist-info package/jmespath-*.dist-info
           cd package && zip -r ../lambda.zip . && cd ..
           zip lambda.zip app.py
 
       - name: Update Lambda function code
         env:
           FUNCTION_NAME: ${{ steps.cfn.outputs.function_name }}
+          BUCKET_NAME: ${{ steps.cfn.outputs.bucket_name }}
         run: |
+          S3_KEY="_lambda/${FUNCTION_NAME}.zip"
+          aws s3 cp apps/chat/lambda/lambda.zip "s3://${BUCKET_NAME}/${S3_KEY}"
           aws lambda update-function-code \
             --function-name "${FUNCTION_NAME}" \
-            --zip-file fileb://apps/chat/lambda/lambda.zip
+            --s3-bucket "${BUCKET_NAME}" \
+            --s3-key "${S3_KEY}"
           aws lambda wait function-updated \
             --function-name "${FUNCTION_NAME}"
 
