@@ -18,6 +18,35 @@
   margin: 0;
 }
 
+.chat-options {
+  display: grid;
+  grid-template-columns: 1fr 160px;
+  gap: 0.5rem;
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid #333;
+}
+
+.chat-options label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.8rem;
+}
+
+.chat-options input,
+.chat-options textarea {
+  padding: 0.4rem 0.6rem;
+  border: 1px solid #444;
+  border-radius: 6px;
+  background: inherit;
+  color: inherit;
+  font: inherit;
+}
+
+.system-prompt-label {
+  grid-column: 1 / -1;
+}
+
 .chat-messages {
   flex: 1;
   overflow-y: auto;
@@ -57,9 +86,28 @@
   word-break: break-word;
 }
 
+.markdown-content p,
+.markdown-content ul,
+.markdown-content ol,
+.markdown-content pre {
+  margin: 0.4rem 0;
+}
+
+.markdown-content code {
+  background: rgba(127, 127, 127, 0.2);
+  padding: 0.1rem 0.25rem;
+  border-radius: 4px;
+}
+
 .chat-message-content.loading {
   opacity: 0.6;
   font-style: italic;
+}
+
+.attachment-list {
+  margin: 0.5rem 0 0;
+  padding-left: 1.2rem;
+  font-size: 0.85rem;
 }
 
 .chat-input-area {
@@ -87,8 +135,31 @@
   border-color: #646cff;
 }
 
+.file-input-label {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.4em 0.8em;
+  border-radius: 6px;
+  border: 1px solid transparent;
+  background-color: #333;
+  cursor: pointer;
+}
+
+.file-input-label input {
+  display: none;
+}
+
+.selected-files {
+  display: flex;
+  gap: 0.5rem;
+  padding: 0 1rem 0.75rem;
+  flex-wrap: wrap;
+  font-size: 0.85rem;
+}
+
 @media (prefers-color-scheme: light) {
-  .chat-header {
+  .chat-header,
+  .chat-options {
     border-bottom-color: #ddd;
   }
   .chat-message.assistant {
@@ -98,7 +169,12 @@
   .chat-input-area {
     border-top-color: #ddd;
   }
-  .chat-input {
+  .chat-input,
+  .chat-options input,
+  .chat-options textarea {
     border-color: #ccc;
+  }
+  .file-input-label {
+    background-color: #f0f0f0;
   }
 }
