@@ -68,9 +68,6 @@ jobs:
           rm -rf package lambda.zip
           mkdir -p package
           pip install -t package -r requirements.txt
-          # Exclude packages already in the Lambda Python runtime
-          rm -rf package/boto3 package/botocore package/s3transfer package/jmespath
-          rm -rf package/boto3-*.dist-info package/botocore-*.dist-info package/s3transfer-*.dist-info package/jmespath-*.dist-info
 
           # Application sources
           cp app.py package/
@@ -87,6 +84,10 @@ jobs:
           import app  # noqa: F401
           print("lambda package import check: ok")
           PY
+
+          # Exclude packages already in the Lambda Python runtime
+          rm -rf package/boto3 package/botocore package/s3transfer package/jmespath
+          rm -rf package/boto3-*.dist-info package/botocore-*.dist-info package/s3transfer-*.dist-info package/jmespath-*.dist-info
 
           cd package && zip -r ../lambda.zip . && cd ..
 
