@@ -622,10 +622,10 @@ def chat(request: ChatRequest) -> ChatResponse:
     message_count = len(request.messages)
     logger.info("Chat request received", extra={"message_count": message_count})
 
-    _ensure_langsmith_configured()
     capability = MODEL_CAPABILITIES[request.model]
 
     try:
+        _ensure_langsmith_configured()
         if capability.provider == "openai":
             return _handle_openai_chat(request, capability, message_count)
         return _handle_bedrock_chat(request, capability, message_count)
