@@ -3,6 +3,7 @@
 import logging
 import time
 from functools import lru_cache
+from typing import Any
 
 import boto3
 from fastapi import APIRouter, FastAPI, HTTPException
@@ -29,44 +30,71 @@ def get_openai_client() -> OpenAI:
     return OpenAI(api_key=api_key)
 
 
+class ContentItem(BaseModel):
+    type: str
+    text: str | None = None
+    image_url: str | None = None
+    filename: str | None = None
+    file_data: str | None = None
+
+
 class Message(BaseModel):
     role: str
-    content: str
+    content: str | list[ContentItem]
 
 
 class ChatRequest(BaseModel):
     messages: list[Message]
+    model: str = "gpt-4o-mini"
+    instructions: str | None = None
 
 
 class ChatResponse(BaseModel):
     message: str
 
 
+def build_input(messages: list[Message]) -> list[dict[str, Any]]:
+    """Convert messages to OpenAI Responses API input format."""
+    result: list[dict[str, Any]] = []
+    for m in messages:
+        if isinstance(m.content, str):
+            result.append({"role": m.role, "content": m.content})
+        else:
+            items = [item.model_dump(exclude_none=True) for item in m.content]
+            result.append({"role": m.role, "content": items})
+    return result
+
+
 @router.post("/chat", response_model=ChatResponse)
 def chat(request: ChatRequest) -> ChatResponse:
-    """Send messages to OpenAI API and return the assistant response."""
+    """Send messages to OpenAI Responses API and return the assistant response."""
     message_count = len(request.messages)
-    logger.info("Chat request received", extra={"message_count": message_count})
+    logger.info(
+        "Chat request received",
+        extra={"message_count": message_count, "model": request.model},
+    )
 
     client = get_openai_client()
     try:
         start = time.time()
-        response = client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[{"role": m.role, "content": m.content} for m in request.messages],
-        )
+        kwargs: dict[str, Any] = {
+            "model": request.model,
+            "input": build_input(request.messages),
+        }
+        if request.instructions:
+            kwargs["instructions"] = request.instructions
+
+        response = client.responses.create(**kwargs)
         duration_ms = int((time.time() - start) * 1000)
-        content = response.choices[0].message.content or ""
+        content = response.output_text
 
         logger.info(
             "Chat response generated",
             extra={
                 "openai_duration_ms": duration_ms,
                 "model": response.model,
-                "usage_prompt_tokens": response.usage.prompt_tokens if response.usage else None,
-                "usage_completion_tokens": (
-                    response.usage.completion_tokens if response.usage else None
-                ),
+                "usage_input_tokens": (response.usage.input_tokens if response.usage else None),
+                "usage_output_tokens": (response.usage.output_tokens if response.usage else None),
                 "response_length": len(content),
             },
         )
