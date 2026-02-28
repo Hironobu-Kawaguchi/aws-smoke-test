@@ -614,13 +614,18 @@ function App() {
       // (Bedrock), send the full accumulated history so the model has context.
       const usePreviousResponse =
         activeModel?.supportsPreviousResponse !== false && previousResponseId != null
+      // In full-history mode, past messages lack dataUrl (already discarded)
+      // so only text/role is sent for older turns. The current turn keeps its
+      // attachments via requestMessage which still holds the full dataUrl.
       const requestMessages: RequestMessage[] = usePreviousResponse
         ? [requestMessage]
-        : updatedMessages.map((m) => ({
-            role: m.role,
-            content: m.content,
-            attachments: undefined,
-          }))
+        : [
+            ...updatedMessages.slice(0, -1).map((m) => ({
+              role: m.role,
+              content: m.content,
+            })),
+            requestMessage,
+          ]
 
       const body = JSON.stringify({
         messages: requestMessages,
