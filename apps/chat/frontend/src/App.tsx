@@ -609,8 +609,21 @@ function App() {
     setLoading(true)
 
     try {
+      // When the model supports previousResponseId (OpenAI), send only the
+      // latest message and let the server thread the conversation. Otherwise
+      // (Bedrock), send the full accumulated history so the model has context.
+      const usePreviousResponse =
+        activeModel?.supportsPreviousResponse !== false && previousResponseId != null
+      const requestMessages: RequestMessage[] = usePreviousResponse
+        ? [requestMessage]
+        : updatedMessages.map((m) => ({
+            role: m.role,
+            content: m.content,
+            attachments: undefined,
+          }))
+
       const body = JSON.stringify({
-        messages: [requestMessage],
+        messages: requestMessages,
         model: settings.model,
         systemPrompt: settings.systemPrompt,
         webSearchEnabled: settings.webSearchEnabled,
@@ -619,10 +632,7 @@ function App() {
           ? settings.reasoningEffort
           : undefined,
         maxOutputTokens: settings.maxOutputTokens,
-        previousResponseId:
-          activeModel?.supportsPreviousResponse !== false
-            ? (previousResponseId ?? undefined)
-            : undefined,
+        previousResponseId: usePreviousResponse ? previousResponseId : undefined,
       })
       const bodyHash = await sha256Hex(body)
       const response = await fetch('/api/chat', {
@@ -639,7 +649,13 @@ function App() {
       }
 
       const data = (await response.json()) as ChatApiResponse
-      setPreviousResponseId(typeof data.responseId === 'string' ? data.responseId : null)
+      // Only persist responseId for models that support response threading
+      // (OpenAI). Bedrock returns an AWS request ID that must not be reused.
+      setPreviousResponseId(
+        activeModel?.supportsPreviousResponse !== false && typeof data.responseId === 'string'
+          ? data.responseId
+          : null,
+      )
       setMessages([
         ...updatedMessages,
         {
