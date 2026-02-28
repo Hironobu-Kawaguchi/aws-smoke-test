@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - 'apps/notepad/**'
+      - 'infrastructure/notepad-stack.yml'
       - '.github/workflows/deploy-notepad.yml'
   workflow_dispatch:
 
@@ -14,16 +15,41 @@ permissions:
 
 env:
   AWS_REGION: ap-northeast-1
+  STACK_NAME: notepad-stack
 
 jobs:
-  build-and-deploy:
+  deploy:
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: apps/notepad
 
     steps:
       - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Deploy CloudFormation stack
+        run: |
+          aws cloudformation deploy \
+            --template-file infrastructure/notepad-stack.yml \
+            --stack-name "${STACK_NAME}" \
+            --no-fail-on-empty-changeset
+
+      - name: Get stack outputs
+        id: cfn
+        run: |
+          BUCKET_NAME=$(aws cloudformation describe-stacks \
+            --stack-name "${STACK_NAME}" \
+            --query 'Stacks[0].Outputs[?OutputKey==`BucketName`].OutputValue' \
+            --output text)
+          DISTRIBUTION_ID=$(aws cloudformation describe-stacks \
+            --stack-name "${STACK_NAME}" \
+            --query 'Stacks[0].Outputs[?OutputKey==`DistributionId`].OutputValue' \
+            --output text)
+          echo "bucket_name=${BUCKET_NAME}" >> "$GITHUB_OUTPUT"
+          echo "distribution_id=${DISTRIBUTION_ID}" >> "$GITHUB_OUTPUT"
 
       - uses: actions/setup-node@v4
         with:
@@ -32,25 +58,21 @@ jobs:
           cache-dependency-path: apps/notepad/package-lock.json
 
       - name: Install dependencies
+        working-directory: apps/notepad
         run: npm ci
 
       - name: Build
+        working-directory: apps/notepad
         run: npm run build
-
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          role-to-assume: ${{ vars.NOTEPAD_DEPLOY_ROLE_ARN }}
-          aws-region: ${{ env.AWS_REGION }}
 
       - name: Deploy to S3
         env:
-          S3_BUCKET: ${{ vars.NOTEPAD_S3_BUCKET }}
-        run: aws s3 sync dist/ "s3://${S3_BUCKET}" --delete
+          BUCKET_NAME: ${{ steps.cfn.outputs.bucket_name }}
+        run: aws s3 sync apps/notepad/dist/ "s3://${BUCKET_NAME}" --delete
 
       - name: Invalidate CloudFront cache
         env:
-          DISTRIBUTION_ID: ${{ vars.NOTEPAD_DISTRIBUTION_ID }}
+          DISTRIBUTION_ID: ${{ steps.cfn.outputs.distribution_id }}
         run: |
           aws cloudfront create-invalidation \
             --distribution-id "${DISTRIBUTION_ID}" \
