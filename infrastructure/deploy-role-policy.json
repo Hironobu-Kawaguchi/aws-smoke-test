@@ -16,7 +16,10 @@
         "cloudformation:ExecuteChangeSet",
         "cloudformation:DeleteChangeSet"
       ],
-      "Resource": "arn:aws:cloudformation:ap-northeast-1:235494796255:stack/notepad-stack/*"
+      "Resource": [
+        "arn:aws:cloudformation:ap-northeast-1:235494796255:stack/notepad-stack/*",
+        "arn:aws:cloudformation:ap-northeast-1:235494796255:stack/chat-stack/*"
+      ]
     },
     {
       "Sid": "S3BucketManagement",
@@ -36,7 +39,9 @@
       ],
       "Resource": [
         "arn:aws:s3:::notepad-stack-*",
-        "arn:aws:s3:::notepad-stack-*/*"
+        "arn:aws:s3:::notepad-stack-*/*",
+        "arn:aws:s3:::chat-stack-*",
+        "arn:aws:s3:::chat-stack-*/*"
       ]
     },
     {
@@ -56,6 +61,44 @@
         "cloudfront:CreateInvalidation"
       ],
       "Resource": "*"
+    },
+    {
+      "Sid": "LambdaManagement",
+      "Effect": "Allow",
+      "Action": [
+        "lambda:CreateFunction",
+        "lambda:UpdateFunctionCode",
+        "lambda:UpdateFunctionConfiguration",
+        "lambda:GetFunction",
+        "lambda:GetFunctionConfiguration",
+        "lambda:DeleteFunction",
+        "lambda:CreateFunctionUrlConfig",
+        "lambda:UpdateFunctionUrlConfig",
+        "lambda:GetFunctionUrlConfig",
+        "lambda:DeleteFunctionUrlConfig",
+        "lambda:AddPermission",
+        "lambda:RemovePermission",
+        "lambda:GetPolicy"
+      ],
+      "Resource": "arn:aws:lambda:ap-northeast-1:235494796255:function:chat-stack-*"
+    },
+    {
+      "Sid": "IAMRoleForLambda",
+      "Effect": "Allow",
+      "Action": [
+        "iam:CreateRole",
+        "iam:DeleteRole",
+        "iam:GetRole",
+        "iam:PutRolePolicy",
+        "iam:DeleteRolePolicy",
+        "iam:GetRolePolicy",
+        "iam:AttachRolePolicy",
+        "iam:DetachRolePolicy",
+        "iam:PassRole",
+        "iam:ListAttachedRolePolicies",
+        "iam:ListRolePolicies"
+      ],
+      "Resource": "arn:aws:iam::235494796255:role/chat-stack-*"
     }
   ]
 }

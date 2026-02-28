@@ -1,0 +1,65 @@
+"""Chat API backend using FastAPI + Mangum for AWS Lambda."""
+
+import logging
+from functools import lru_cache
+
+import boto3
+from fastapi import FastAPI, HTTPException
+from mangum import Mangum
+from openai import OpenAI
+from pydantic import BaseModel
+
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
+
+app = FastAPI(root_path="/api")
+
+SSM_PARAMETER_NAME = "/chat-app/openai-api-key"
+AWS_REGION = "ap-northeast-1"
+
+
+@lru_cache(maxsize=1)
+def get_openai_client() -> OpenAI:
+    """Retrieve OpenAI API key from SSM Parameter Store and create client."""
+    ssm = boto3.client("ssm", region_name=AWS_REGION)
+    response = ssm.get_parameter(Name=SSM_PARAMETER_NAME, WithDecryption=True)
+    api_key = response["Parameter"]["Value"]
+    return OpenAI(api_key=api_key)
+
+
+class Message(BaseModel):
+    role: str
+    content: str
+
+
+class ChatRequest(BaseModel):
+    messages: list[Message]
+
+
+class ChatResponse(BaseModel):
+    message: str
+
+
+@app.post("/chat", response_model=ChatResponse)
+def chat(request: ChatRequest) -> ChatResponse:
+    """Send messages to OpenAI API and return the assistant response."""
+    client = get_openai_client()
+    try:
+        response = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[{"role": m.role, "content": m.content} for m in request.messages],
+        )
+        content = response.choices[0].message.content or ""
+        return ChatResponse(message=content)
+    except Exception as e:
+        logger.exception("OpenAI API call failed")
+        raise HTTPException(status_code=502, detail=str(e)) from e
+
+
+@app.get("/health")
+def health() -> dict[str, str]:
+    """Health check endpoint."""
+    return {"status": "ok"}
+
+
+handler = Mangum(app)
