@@ -31,7 +31,7 @@ jobs:
 
       - name: ESLint
         working-directory: ${{ matrix.app }}
-        run: npx eslint . --format compact
+        run: npm run lint
 
   python-lint:
     runs-on: ubuntu-latest
