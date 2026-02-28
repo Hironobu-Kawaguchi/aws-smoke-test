@@ -33,6 +33,8 @@ interface ModelMetadata {
   supportsReasoningEffort: boolean
   reasoningEffortOptions: ReasoningEffort[]
   defaultReasoningEffort: ReasoningEffort | null
+  supportsWebSearch: boolean
+  supportsPreviousResponse: boolean
 }
 
 const FALLBACK_MODELS: ModelMetadata[] = [
@@ -42,6 +44,8 @@ const FALLBACK_MODELS: ModelMetadata[] = [
     supportsReasoningEffort: false,
     reasoningEffortOptions: [],
     defaultReasoningEffort: null,
+    supportsWebSearch: true,
+    supportsPreviousResponse: true,
   },
   {
     id: 'gpt-4.1-mini',
@@ -49,6 +53,8 @@ const FALLBACK_MODELS: ModelMetadata[] = [
     supportsReasoningEffort: false,
     reasoningEffortOptions: [],
     defaultReasoningEffort: null,
+    supportsWebSearch: true,
+    supportsPreviousResponse: true,
   },
   {
     id: 'gpt-5',
@@ -56,6 +62,8 @@ const FALLBACK_MODELS: ModelMetadata[] = [
     supportsReasoningEffort: true,
     reasoningEffortOptions: ['low', 'medium', 'high'],
     defaultReasoningEffort: 'low',
+    supportsWebSearch: true,
+    supportsPreviousResponse: true,
   },
   {
     id: 'gpt-5-mini',
@@ -63,6 +71,8 @@ const FALLBACK_MODELS: ModelMetadata[] = [
     supportsReasoningEffort: true,
     reasoningEffortOptions: ['low', 'medium', 'high'],
     defaultReasoningEffort: 'low',
+    supportsWebSearch: true,
+    supportsPreviousResponse: true,
   },
   {
     id: 'gpt-5-nano',
@@ -70,6 +80,8 @@ const FALLBACK_MODELS: ModelMetadata[] = [
     supportsReasoningEffort: true,
     reasoningEffortOptions: ['low', 'medium', 'high'],
     defaultReasoningEffort: 'low',
+    supportsWebSearch: true,
+    supportsPreviousResponse: true,
   },
   {
     id: 'gpt-5-chat-latest',
@@ -77,6 +89,8 @@ const FALLBACK_MODELS: ModelMetadata[] = [
     supportsReasoningEffort: true,
     reasoningEffortOptions: ['low', 'medium', 'high'],
     defaultReasoningEffort: 'low',
+    supportsWebSearch: true,
+    supportsPreviousResponse: true,
   },
   {
     id: 'gpt-5.2',
@@ -84,6 +98,8 @@ const FALLBACK_MODELS: ModelMetadata[] = [
     supportsReasoningEffort: true,
     reasoningEffortOptions: ['low', 'medium', 'high'],
     defaultReasoningEffort: 'low',
+    supportsWebSearch: true,
+    supportsPreviousResponse: true,
   },
   {
     id: 'gpt-5.2-pro',
@@ -91,6 +107,8 @@ const FALLBACK_MODELS: ModelMetadata[] = [
     supportsReasoningEffort: true,
     reasoningEffortOptions: ['low', 'medium', 'high'],
     defaultReasoningEffort: 'low',
+    supportsWebSearch: true,
+    supportsPreviousResponse: true,
   },
   {
     id: 'o4-mini',
@@ -98,6 +116,8 @@ const FALLBACK_MODELS: ModelMetadata[] = [
     supportsReasoningEffort: true,
     reasoningEffortOptions: ['low', 'medium', 'high'],
     defaultReasoningEffort: 'low',
+    supportsWebSearch: true,
+    supportsPreviousResponse: true,
   },
   {
     id: 'o3-deep-research',
@@ -105,6 +125,8 @@ const FALLBACK_MODELS: ModelMetadata[] = [
     supportsReasoningEffort: true,
     reasoningEffortOptions: ['low', 'medium', 'high'],
     defaultReasoningEffort: 'low',
+    supportsWebSearch: true,
+    supportsPreviousResponse: true,
   },
   {
     id: 'o4-mini-deep-research',
@@ -112,6 +134,35 @@ const FALLBACK_MODELS: ModelMetadata[] = [
     supportsReasoningEffort: true,
     reasoningEffortOptions: ['low', 'medium', 'high'],
     defaultReasoningEffort: 'low',
+    supportsWebSearch: true,
+    supportsPreviousResponse: true,
+  },
+  {
+    id: 'global.anthropic.claude-opus-4-6-v1',
+    supportsTemperature: true,
+    supportsReasoningEffort: false,
+    reasoningEffortOptions: [],
+    defaultReasoningEffort: null,
+    supportsWebSearch: false,
+    supportsPreviousResponse: false,
+  },
+  {
+    id: 'global.anthropic.claude-sonnet-4-6',
+    supportsTemperature: true,
+    supportsReasoningEffort: false,
+    reasoningEffortOptions: [],
+    defaultReasoningEffort: null,
+    supportsWebSearch: false,
+    supportsPreviousResponse: false,
+  },
+  {
+    id: 'global.anthropic.claude-haiku-4-5-20251001-v1:0',
+    supportsTemperature: true,
+    supportsReasoningEffort: false,
+    reasoningEffortOptions: [],
+    defaultReasoningEffort: null,
+    supportsWebSearch: false,
+    supportsPreviousResponse: false,
   },
 ]
 const ALLOWED_ATTACHMENT_MIME_TYPES = new Set([
@@ -558,8 +609,26 @@ function App() {
     setLoading(true)
 
     try {
+      // When the model supports previousResponseId (OpenAI), send only the
+      // latest message and let the server thread the conversation. Otherwise
+      // (Bedrock), send the full accumulated history so the model has context.
+      const usePreviousResponse =
+        activeModel?.supportsPreviousResponse !== false && previousResponseId != null
+      // In full-history mode, past messages lack dataUrl (already discarded)
+      // so only text/role is sent for older turns. The current turn keeps its
+      // attachments via requestMessage which still holds the full dataUrl.
+      const requestMessages: RequestMessage[] = usePreviousResponse
+        ? [requestMessage]
+        : [
+            ...updatedMessages.slice(0, -1).map((m) => ({
+              role: m.role,
+              content: m.content,
+            })),
+            requestMessage,
+          ]
+
       const body = JSON.stringify({
-        messages: [requestMessage],
+        messages: requestMessages,
         model: settings.model,
         systemPrompt: settings.systemPrompt,
         webSearchEnabled: settings.webSearchEnabled,
@@ -568,7 +637,7 @@ function App() {
           ? settings.reasoningEffort
           : undefined,
         maxOutputTokens: settings.maxOutputTokens,
-        previousResponseId: previousResponseId ?? undefined,
+        previousResponseId: usePreviousResponse ? previousResponseId : undefined,
       })
       const bodyHash = await sha256Hex(body)
       const response = await fetch('/api/chat', {
@@ -585,7 +654,13 @@ function App() {
       }
 
       const data = (await response.json()) as ChatApiResponse
-      setPreviousResponseId(typeof data.responseId === 'string' ? data.responseId : null)
+      // Only persist responseId for models that support response threading
+      // (OpenAI). Bedrock returns an AWS request ID that must not be reused.
+      setPreviousResponseId(
+        activeModel?.supportsPreviousResponse !== false && typeof data.responseId === 'string'
+          ? data.responseId
+          : null,
+      )
       setMessages([
         ...updatedMessages,
         {
@@ -653,20 +728,22 @@ function App() {
             disabled={loading}
           />
         </label>
-        <label className="chat-toggle">
-          Web Search
-          <input
-            type="checkbox"
-            checked={settings.webSearchEnabled}
-            onChange={(e) =>
-              setSettings((current) => ({
-                ...current,
-                webSearchEnabled: e.target.checked,
-              }))
-            }
-            disabled={loading}
-          />
-        </label>
+        {activeModel?.supportsWebSearch !== false && (
+          <label className="chat-toggle">
+            Web Search
+            <input
+              type="checkbox"
+              checked={settings.webSearchEnabled}
+              onChange={(e) =>
+                setSettings((current) => ({
+                  ...current,
+                  webSearchEnabled: e.target.checked,
+                }))
+              }
+              disabled={loading}
+            />
+          </label>
+        )}
         {activeModel?.supportsTemperature && (
           <label>
             Temperature

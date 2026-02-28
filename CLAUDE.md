@@ -50,7 +50,7 @@ infrastructure/          # CloudFormation テンプレート + IAMポリシー
 
 ```
 Browser → CloudFront → /api/* → Lambda Function URL (OAC認証) → OpenAI API
-                    → /*     → S3 (React SPA)
+                    → /*     → S3 (React SPA)           → Amazon Bedrock (Claude)
                                     ↑
                     Lambda → SSM Parameter Store (APIキー取得、lru_cacheで1回のみ)
                            → LangSmith (トレース送信、オプショナル)
@@ -59,6 +59,7 @@ Browser → CloudFront → /api/* → Lambda Function URL (OAC認証) → OpenAI
 - FastAPI は `APIRouter(prefix="/api")` でルーティング。CloudFront が `/api/*` パスをそのまま Lambda に転送するため、prefix が必須
 - POST/PUT リクエストはクライアント側で `x-amz-content-sha256` ヘッダー（SHA256ハッシュ）が必要（CloudFront OAC + Lambda Function URL の要件）
 - Lambda Function URL の OAC には `lambda:InvokeFunctionUrl` と `lambda:InvokeFunction` の両方の Permission が必要
+- **マルチプロバイダー対応**: OpenAI (Responses API) と Amazon Bedrock (Converse API via langchain-aws) をモデル選択で切替。Bedrock モデルは Web Search / previous_response_id 非対応
 
 ## Deployment
 
@@ -69,6 +70,8 @@ Browser → CloudFront → /api/* → Lambda Function URL (OAC認証) → OpenAI
 - **Chat app**: SSM Parameter Store に事前設定が必要:
   - `/chat-app/openai-api-key`（SecureString、必須）
   - `/chat-app/langsmith-api-key`（SecureString、オプショナル — 未設定時は LangSmith トレーシング無効）
+- **Bedrock モデルアクセス**: AWS コンソール > Bedrock > Model access で以下を有効化:
+  - Claude Opus 4.6, Claude Sonnet 4.6, Claude Haiku 4.5
 - `deploy-role-policy.json` を変更した場合、IAMロールへの手動反映が別途必要（`aws iam put-role-policy` で更新）
 
 ## AWS Configuration

@@ -10,6 +10,8 @@ from typing import Any, Literal
 
 import boto3
 from fastapi import APIRouter, FastAPI, HTTPException
+from langchain_aws import ChatBedrockConverse
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langchain_core.runnables import Runnable, RunnableLambda
 from langsmith import traceable
 from langsmith.run_trees import get_cached_client
@@ -38,73 +40,112 @@ DEFAULT_TEMPERATURE = 0.7
 REASONING_EFFORT_OPTIONS = ("low", "medium", "high")
 
 ReasoningEffort = Literal["low", "medium", "high"]
+Provider = Literal["openai", "bedrock"]
 
 
 @dataclass(frozen=True)
 class ModelCapability:
+    provider: Provider
     supports_temperature: bool
     supports_reasoning_effort: bool
+    supports_web_search: bool = True
+    supports_previous_response: bool = True
     reasoning_effort_options: tuple[ReasoningEffort, ...] = ()
     default_reasoning_effort: ReasoningEffort | None = None
 
 
-# Web search-compatible models in the Responses API.
 MODEL_CAPABILITIES: dict[str, ModelCapability] = {
-    "gpt-4.1": ModelCapability(supports_temperature=True, supports_reasoning_effort=False),
-    "gpt-4.1-mini": ModelCapability(supports_temperature=True, supports_reasoning_effort=False),
+    # --- OpenAI models ---
+    "gpt-4.1": ModelCapability(
+        provider="openai", supports_temperature=True, supports_reasoning_effort=False
+    ),
+    "gpt-4.1-mini": ModelCapability(
+        provider="openai", supports_temperature=True, supports_reasoning_effort=False
+    ),
     "gpt-5": ModelCapability(
+        provider="openai",
         supports_temperature=False,
         supports_reasoning_effort=True,
         reasoning_effort_options=REASONING_EFFORT_OPTIONS,
         default_reasoning_effort="low",
     ),
     "gpt-5-mini": ModelCapability(
+        provider="openai",
         supports_temperature=False,
         supports_reasoning_effort=True,
         reasoning_effort_options=REASONING_EFFORT_OPTIONS,
         default_reasoning_effort="low",
     ),
     "gpt-5-nano": ModelCapability(
+        provider="openai",
         supports_temperature=False,
         supports_reasoning_effort=True,
         reasoning_effort_options=REASONING_EFFORT_OPTIONS,
         default_reasoning_effort="low",
     ),
     "gpt-5-chat-latest": ModelCapability(
+        provider="openai",
         supports_temperature=False,
         supports_reasoning_effort=True,
         reasoning_effort_options=REASONING_EFFORT_OPTIONS,
         default_reasoning_effort="low",
     ),
     "gpt-5.2": ModelCapability(
+        provider="openai",
         supports_temperature=False,
         supports_reasoning_effort=True,
         reasoning_effort_options=REASONING_EFFORT_OPTIONS,
         default_reasoning_effort="low",
     ),
     "gpt-5.2-pro": ModelCapability(
+        provider="openai",
         supports_temperature=False,
         supports_reasoning_effort=True,
         reasoning_effort_options=REASONING_EFFORT_OPTIONS,
         default_reasoning_effort="low",
     ),
     "o4-mini": ModelCapability(
+        provider="openai",
         supports_temperature=False,
         supports_reasoning_effort=True,
         reasoning_effort_options=REASONING_EFFORT_OPTIONS,
         default_reasoning_effort="low",
     ),
     "o3-deep-research": ModelCapability(
+        provider="openai",
         supports_temperature=False,
         supports_reasoning_effort=True,
         reasoning_effort_options=REASONING_EFFORT_OPTIONS,
         default_reasoning_effort="low",
     ),
     "o4-mini-deep-research": ModelCapability(
+        provider="openai",
         supports_temperature=False,
         supports_reasoning_effort=True,
         reasoning_effort_options=REASONING_EFFORT_OPTIONS,
         default_reasoning_effort="low",
+    ),
+    # --- Bedrock (Claude) models ---
+    "global.anthropic.claude-opus-4-6-v1": ModelCapability(
+        provider="bedrock",
+        supports_temperature=True,
+        supports_reasoning_effort=False,
+        supports_web_search=False,
+        supports_previous_response=False,
+    ),
+    "global.anthropic.claude-sonnet-4-6": ModelCapability(
+        provider="bedrock",
+        supports_temperature=True,
+        supports_reasoning_effort=False,
+        supports_web_search=False,
+        supports_previous_response=False,
+    ),
+    "global.anthropic.claude-haiku-4-5-20251001-v1:0": ModelCapability(
+        provider="bedrock",
+        supports_temperature=True,
+        supports_reasoning_effort=False,
+        supports_web_search=False,
+        supports_previous_response=False,
     ),
 }
 ALLOWED_MODELS = set(MODEL_CAPABILITIES)
@@ -178,10 +219,17 @@ def _flush_langsmith_traces() -> None:
 
 
 @lru_cache(maxsize=1)
-def get_openai_client() -> OpenAI:
-    """Create an OpenAI client with LangSmith tracing configuration."""
+def _ensure_langsmith_configured() -> None:
+    """Configure LangSmith environment variables (called once via lru_cache)."""
     credentials = get_api_credentials()
     _configure_langsmith(credentials.langsmith_api_key)
+
+
+@lru_cache(maxsize=1)
+def get_openai_client() -> OpenAI:
+    """Create an OpenAI client with LangSmith tracing configuration."""
+    _ensure_langsmith_configured()
+    credentials = get_api_credentials()
     return OpenAI(api_key=credentials.openai_api_key)
 
 
@@ -195,6 +243,73 @@ def _invoke_openai_responses(request_params: dict[str, Any]) -> Any:
 def get_chat_responses_runnable() -> Runnable[dict[str, Any], Any]:
     return RunnableLambda(_invoke_openai_responses).with_config(
         {"run_name": "chat_lambda_openai_responses"}
+    )
+
+
+def _build_langchain_messages(
+    messages: list["Message"],
+    system_prompt: str | None,
+) -> list[SystemMessage | HumanMessage | AIMessage]:
+    """Convert internal Message objects to LangChain message format for Bedrock."""
+    lc_messages: list[SystemMessage | HumanMessage | AIMessage] = []
+
+    if system_prompt:
+        lc_messages.append(SystemMessage(content=system_prompt))
+
+    for msg in messages:
+        if msg.role == "assistant":
+            lc_messages.append(AIMessage(content=msg.content))
+            continue
+
+        # Build content parts for user messages
+        parts: list[str | dict[str, Any]] = []
+        if msg.content.strip():
+            parts.append({"type": "text", "text": msg.content})
+
+        for attachment in msg.attachments:
+            _, payload = _parse_data_url(attachment.data_url)
+            if attachment.mime_type in IMAGE_ATTACHMENT_MIME_TYPES:
+                parts.append(
+                    {
+                        "type": "image",
+                        "source": {
+                            "type": "base64",
+                            "media_type": attachment.mime_type,
+                            "data": payload,
+                        },
+                    }
+                )
+            elif attachment.mime_type == PDF_ATTACHMENT_MIME_TYPE:
+                parts.append(
+                    {
+                        "type": "document",
+                        "source": {
+                            "type": "base64",
+                            "media_type": "application/pdf",
+                            "data": payload,
+                        },
+                    }
+                )
+
+        lc_messages.append(HumanMessage(content=parts or msg.content))
+
+    return lc_messages
+
+
+def _invoke_bedrock_converse(params: dict[str, Any]) -> AIMessage:
+    model = ChatBedrockConverse(
+        model=params["model_id"],
+        region_name=AWS_REGION,
+        max_tokens=params["max_tokens"],
+        **({"temperature": params["temperature"]} if "temperature" in params else {}),
+    )
+    return model.invoke(params["messages"])
+
+
+@lru_cache(maxsize=1)
+def get_bedrock_runnable() -> Runnable[dict[str, Any], AIMessage]:
+    return RunnableLambda(_invoke_bedrock_converse).with_config(
+        {"run_name": "chat_lambda_bedrock_converse"}
     )
 
 
@@ -251,6 +366,8 @@ class ModelMetadata(BaseModel):
     default_reasoning_effort: ReasoningEffort | None = Field(
         default=None, alias="defaultReasoningEffort"
     )
+    supports_web_search: bool = Field(default=True, alias="supportsWebSearch")
+    supports_previous_response: bool = Field(default=True, alias="supportsPreviousResponse")
 
 
 class ChatRequest(BaseModel):
@@ -295,6 +412,12 @@ class ChatRequest(BaseModel):
                 )
         elif self.reasoning_effort is not None:
             raise ValueError(f"reasoningEffort is not supported for model: {self.model}")
+
+        # Gracefully disable unsupported features for Bedrock models
+        if not capability.supports_web_search:
+            self.web_search_enabled = False
+        if not capability.supports_previous_response:
+            self.previous_response_id = None
 
         return self
 
@@ -359,80 +482,157 @@ def models() -> list[ModelMetadata]:
             supportsReasoningEffort=capability.supports_reasoning_effort,
             reasoningEffortOptions=list(capability.reasoning_effort_options),
             defaultReasoningEffort=capability.default_reasoning_effort,
+            supportsWebSearch=capability.supports_web_search,
+            supportsPreviousResponse=capability.supports_previous_response,
         )
         for model, capability in MODEL_CAPABILITIES.items()
     ]
 
 
-@router.post("/chat", response_model=ChatResponse)
-def chat(request: ChatRequest) -> ChatResponse:
-    """Send messages to OpenAI Responses API and return the assistant response."""
-    message_count = len(request.messages)
-    logger.info("Chat request received", extra={"message_count": message_count})
-
+def _handle_openai_chat(
+    request: ChatRequest, capability: ModelCapability, message_count: int
+) -> ChatResponse:
+    """Handle chat request via OpenAI Responses API."""
     input_messages = []
     for message in request.messages:
         content_parts = _build_content_parts(message)
         if content_parts:
             input_messages.append({"role": message.role, "content": content_parts})
 
-    try:
-        # Ensure LangSmith environment variables are configured before runnable invocation.
-        get_openai_client()
-        start = time.time()
-        capability = MODEL_CAPABILITIES[request.model]
-        request_params: dict[str, Any] = {
+    get_openai_client()
+    start = time.time()
+    request_params: dict[str, Any] = {
+        "model": request.model,
+        "instructions": request.system_prompt or None,
+        "input": input_messages,
+        "max_output_tokens": request.max_output_tokens,
+    }
+    if capability.supports_temperature and request.temperature is not None:
+        request_params["temperature"] = request.temperature
+    if capability.supports_reasoning_effort and request.reasoning_effort is not None:
+        request_params["reasoning"] = {"effort": request.reasoning_effort}
+    if request.web_search_enabled:
+        request_params["tools"] = [{"type": "web_search"}]
+    if request.previous_response_id:
+        request_params["previous_response_id"] = request.previous_response_id
+
+    response = get_chat_responses_runnable().invoke(
+        request_params,
+        config={
+            "run_name": "chat_lambda_request",
+            "tags": ["chat-api", request.model],
+            "metadata": {
+                "message_count": message_count,
+                "web_search_enabled": request.web_search_enabled,
+            },
+        },
+    )
+    duration_ms = int((time.time() - start) * 1000)
+    content = response.output_text or ""
+
+    logger.info(
+        "Chat response generated",
+        extra={
+            "openai_duration_ms": duration_ms,
+            "model": response.model,
+            "usage_prompt_tokens": (response.usage.input_tokens if response.usage else None),
+            "usage_completion_tokens": (response.usage.output_tokens if response.usage else None),
+            "response_length": len(content),
+            "response_id": response.id,
+        },
+    )
+    return ChatResponse(
+        message=content,
+        response_id=response.id,
+        input_tokens=response.usage.input_tokens if response.usage else None,
+        output_tokens=response.usage.output_tokens if response.usage else None,
+        duration_seconds=round(duration_ms / 1000, 2),
+    )
+
+
+def _handle_bedrock_chat(
+    request: ChatRequest, capability: ModelCapability, message_count: int
+) -> ChatResponse:
+    """Handle chat request via Amazon Bedrock Converse API."""
+    lc_messages = _build_langchain_messages(request.messages, request.system_prompt)
+
+    start = time.time()
+    params: dict[str, Any] = {
+        "model_id": request.model,
+        "messages": lc_messages,
+        "max_tokens": request.max_output_tokens,
+    }
+    if capability.supports_temperature and request.temperature is not None:
+        params["temperature"] = request.temperature
+
+    response = get_bedrock_runnable().invoke(
+        params,
+        config={
+            "run_name": "chat_lambda_request",
+            "tags": ["chat-api", request.model],
+            "metadata": {"message_count": message_count},
+        },
+    )
+    duration_ms = int((time.time() - start) * 1000)
+
+    # Extract text content from AIMessage
+    content = ""
+    if isinstance(response.content, str):
+        content = response.content
+    elif isinstance(response.content, list):
+        content = "".join(
+            block.get("text", "") if isinstance(block, dict) else str(block)
+            for block in response.content
+        )
+
+    # Extract usage metadata
+    usage = response.usage_metadata
+    input_tokens = usage.get("input_tokens") if usage else None
+    output_tokens = usage.get("output_tokens") if usage else None
+
+    # Extract request ID for response_id
+    response_metadata = response.response_metadata or {}
+    request_id = (
+        response_metadata.get("ResponseMetadata", {}).get("RequestId", "") or response.id or ""
+    )
+
+    logger.info(
+        "Chat response generated",
+        extra={
+            "bedrock_duration_ms": duration_ms,
             "model": request.model,
-            "instructions": request.system_prompt or None,
-            "input": input_messages,
-            "max_output_tokens": request.max_output_tokens,
-        }
-        if capability.supports_temperature and request.temperature is not None:
-            request_params["temperature"] = request.temperature
-        if capability.supports_reasoning_effort and request.reasoning_effort is not None:
-            request_params["reasoning"] = {"effort": request.reasoning_effort}
-        if request.web_search_enabled:
-            request_params["tools"] = [{"type": "web_search"}]
+            "usage_prompt_tokens": input_tokens,
+            "usage_completion_tokens": output_tokens,
+            "response_length": len(content),
+            "response_id": request_id,
+        },
+    )
+    return ChatResponse(
+        message=content,
+        response_id=request_id,
+        input_tokens=input_tokens,
+        output_tokens=output_tokens,
+        duration_seconds=round(duration_ms / 1000, 2),
+    )
 
-        if request.previous_response_id:
-            request_params["previous_response_id"] = request.previous_response_id
 
-        response = get_chat_responses_runnable().invoke(
-            request_params,
-            config={
-                "run_name": "chat_lambda_request",
-                "tags": ["chat-api", request.model],
-                "metadata": {
-                    "message_count": message_count,
-                    "web_search_enabled": request.web_search_enabled,
-                },
-            },
-        )
-        duration_ms = int((time.time() - start) * 1000)
-        content = response.output_text or ""
+@router.post("/chat", response_model=ChatResponse)
+def chat(request: ChatRequest) -> ChatResponse:
+    """Send messages to OpenAI or Bedrock and return the assistant response."""
+    message_count = len(request.messages)
+    logger.info("Chat request received", extra={"message_count": message_count})
 
-        logger.info(
-            "Chat response generated",
-            extra={
-                "openai_duration_ms": duration_ms,
-                "model": response.model,
-                "usage_prompt_tokens": (response.usage.input_tokens if response.usage else None),
-                "usage_completion_tokens": (
-                    response.usage.output_tokens if response.usage else None
-                ),
-                "response_length": len(content),
-                "response_id": response.id,
-            },
-        )
-        return ChatResponse(
-            message=content,
-            response_id=response.id,
-            input_tokens=response.usage.input_tokens if response.usage else None,
-            output_tokens=response.usage.output_tokens if response.usage else None,
-            duration_seconds=round(duration_ms / 1000, 2),
-        )
+    capability = MODEL_CAPABILITIES[request.model]
+
+    try:
+        _ensure_langsmith_configured()
+        if capability.provider == "openai":
+            return _handle_openai_chat(request, capability, message_count)
+        return _handle_bedrock_chat(request, capability, message_count)
+    except HTTPException:
+        raise
     except Exception as e:
-        logger.exception("OpenAI API call failed")
+        logger.exception("API call failed", extra={"provider": capability.provider})
         raise HTTPException(status_code=502, detail=str(e)) from e
     finally:
         _flush_langsmith_traces()
