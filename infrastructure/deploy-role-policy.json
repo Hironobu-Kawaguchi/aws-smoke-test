@@ -105,6 +105,42 @@
         "iam:ListRolePolicies"
       ],
       "Resource": "arn:aws:iam::235494796255:role/chat-stack-*"
+    },
+    {
+      "Sid": "CloudWatchLogsManagement",
+      "Effect": "Allow",
+      "Action": [
+        "logs:CreateLogGroup",
+        "logs:DeleteLogGroup",
+        "logs:DescribeLogGroups",
+        "logs:PutRetentionPolicy",
+        "logs:TagResource",
+        "logs:UntagResource"
+      ],
+      "Resource": "arn:aws:logs:ap-northeast-1:235494796255:log-group:/aws/lambda/chat-stack-*"
+    },
+    {
+      "Sid": "CloudWatchAlarmsManagement",
+      "Effect": "Allow",
+      "Action": [
+        "cloudwatch:PutMetricAlarm",
+        "cloudwatch:DeleteAlarms",
+        "cloudwatch:DescribeAlarms"
+      ],
+      "Resource": "arn:aws:cloudwatch:ap-northeast-1:235494796255:alarm:chat-stack-*"
+    },
+    {
+      "Sid": "SNSTopicManagement",
+      "Effect": "Allow",
+      "Action": [
+        "sns:CreateTopic",
+        "sns:DeleteTopic",
+        "sns:GetTopicAttributes",
+        "sns:SetTopicAttributes",
+        "sns:TagResource",
+        "sns:UntagResource"
+      ],
+      "Resource": "arn:aws:sns:ap-northeast-1:235494796255:chat-stack-*"
     }
   ]
 }

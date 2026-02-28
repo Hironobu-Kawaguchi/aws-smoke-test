@@ -76,6 +76,66 @@ Browser → CloudFront → /api/* → Lambda Function URL (OAC認証) → OpenAI
 - **CloudFront**: OAC (Origin Access Control) でS3/Lambdaアクセス。OAIは使わない
 - **CloudFront CustomErrorResponses**: 403/404 を index.html に変換（SPA対応）。分配レベルで適用されるため、Lambda origin のエラーも変換される点に注意
 
+## Linting
+
+```bash
+# Python (ruff)
+uvx ruff check apps/chat/lambda/
+uvx ruff format --check apps/chat/lambda/
+
+# TypeScript (ESLint + tsc)
+cd apps/notepad && npm run lint && npx tsc -b
+cd apps/chat/frontend && npm run lint && npx tsc -b
+```
+
+- CI ワークフロー `.github/workflows/lint.yml` が PR/push 時に全リント・型チェックを実行
+- Python 依存: `requirements.in`（非固定）→ `uv pip compile` → `requirements.txt`（固定）
+
+## Observability
+
+### ログ
+
+- Lambda JSON 構造化ログ（`LoggingConfig` で自動変換、aws-lambda-powertools 不要）
+- Log Group: `/aws/lambda/chat-stack-api`（14日保持）
+- アプリケーションログに OpenAI API レイテンシ・トークン使用量を記録
+
+### トレース
+
+- X-Ray Active トレース（Lambda 自動セグメント生成、コード変更不要）
+- AWS Console > X-Ray > Traces で確認
+
+### アラーム
+
+- `chat-stack-lambda-errors`: Lambda エラー > 0 が3分連続で発火
+- `chat-stack-lambda-duration-p90`: p90 レイテンシ > 20s で発火
+- 通知先: SNS Topic `chat-stack-alarms`
+
+### SNS 通知購読
+
+```bash
+aws sns subscribe \
+  --topic-arn <AlarmTopicArn from stack outputs> \
+  --protocol email \
+  --notification-endpoint your@email.com
+```
+
+### CloudWatch Logs Insights クエリ
+
+```
+# エラー検索
+fields @timestamp, @message | filter level = "ERROR" | sort @timestamp desc | limit 20
+
+# OpenAI API レイテンシ
+fields @timestamp, openai_duration_ms, model, usage_prompt_tokens, usage_completion_tokens
+| filter openai_duration_ms > 0
+| sort @timestamp desc | limit 50
+
+# コールドスタート検出
+filter @type = "REPORT" | fields @duration, @initDuration
+| filter ispresent(@initDuration)
+| sort @timestamp desc | limit 20
+```
+
 ## Conventions
 
 - 回答は日本語で生成する

@@ -15,6 +15,7 @@ Resources:
             Action: sts:AssumeRole
       ManagedPolicyArns:
         - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+        - arn:aws:iam::aws:policy/AWSXRayDaemonWriteAccess
       Policies:
         - PolicyName: SSMGetParameter
           PolicyDocument:
@@ -24,8 +25,15 @@ Resources:
                 Action: ssm:GetParameter
                 Resource: !Sub 'arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/chat-app/openai-api-key'
 
+  ChatFunctionLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws/lambda/${AWS::StackName}-api'
+      RetentionInDays: 14
+
   ChatFunction:
     Type: AWS::Lambda::Function
+    DependsOn: ChatFunctionLogGroup
     Properties:
       FunctionName: !Sub '${AWS::StackName}-api'
       Runtime: python3.13
@@ -33,6 +41,13 @@ Resources:
       Role: !GetAtt LambdaExecutionRole.Arn
       MemorySize: 256
       Timeout: 30
+      LoggingConfig:
+        LogFormat: JSON
+        ApplicationLogLevel: INFO
+        SystemLogLevel: WARN
+        LogGroup: !Sub '/aws/lambda/${AWS::StackName}-api'
+      TracingConfig:
+        Mode: Active
       Code:
         ZipFile: |
           def handler(event, context):
@@ -160,6 +175,50 @@ Resources:
             ErrorCachingMinTTL: 10
         HttpVersion: http2and3
 
+  # --- Monitoring ---
+  AlarmNotificationTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: !Sub '${AWS::StackName}-alarms'
+
+  LambdaErrorsAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub '${AWS::StackName}-lambda-errors'
+      AlarmDescription: Lambda function errors detected
+      Namespace: AWS/Lambda
+      MetricName: Errors
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref ChatFunction
+      Statistic: Sum
+      Period: 60
+      EvaluationPeriods: 3
+      Threshold: 0
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref AlarmNotificationTopic
+
+  LambdaDurationAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub '${AWS::StackName}-lambda-duration-p90'
+      AlarmDescription: Lambda p90 duration exceeds 20s
+      Namespace: AWS/Lambda
+      MetricName: Duration
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref ChatFunction
+      ExtendedStatistic: p90
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 20000
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref AlarmNotificationTopic
+
 Outputs:
   BucketName:
     Value: !Ref SiteBucket
@@ -172,3 +231,6 @@ Outputs:
 
   FunctionName:
     Value: !Ref ChatFunction
+
+  AlarmTopicArn:
+    Value: !Ref AlarmNotificationTopic

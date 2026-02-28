@@ -23,6 +23,11 @@ cdk.out/
 .DS_Store
 Thumbs.db
 
+# Python
+__pycache__/
+*.py[cod]
+.ruff_cache/
+
 # Logs
 *.log
 npm-debug.log*

@@ -1,0 +1,53 @@
+name: lint
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+jobs:
+  frontend-lint:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        app: [apps/notepad, apps/chat/frontend]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: ${{ matrix.app }}/package-lock.json
+
+      - name: Install dependencies
+        working-directory: ${{ matrix.app }}
+        run: npm ci
+
+      - name: TypeScript type check
+        working-directory: ${{ matrix.app }}
+        run: npx tsc -b
+
+      - name: ESLint
+        working-directory: ${{ matrix.app }}
+        run: npm run lint
+
+  python-lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - run: pip install ruff
+
+      - name: Ruff check
+        working-directory: apps/chat/lambda
+        run: ruff check .
+
+      - name: Ruff format check
+        working-directory: apps/chat/lambda
+        run: ruff format --check .
